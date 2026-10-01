@@ -1,0 +1,13 @@
+{
+  "name": "opencode-elapsed-timer",
+  "version": "0.2.0",
+  "type": "module",
+  "description": "OpenCode V2 TUI plugin: live elapsed-time and tok/s throughput indicator in the prompt footer status row",
+  "exports": { ".": "./index.ts", "./tui": "./tui.tsx" },
+  "dependencies": { "@opencode/plugin": "latest" },
+  "peerDependencies": {
+    "@opentui/core": ">=0.5.8",
+    "@opentui/solid": ">=0.5.8",
+    "solid-js": ">=1.9.0"
+  }
+}
