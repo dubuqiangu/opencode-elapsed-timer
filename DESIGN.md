@@ -43,7 +43,7 @@ opencode-elapsed-timer/                  # 开发工作区(本项目)
 # 部署方式(OpenCode 运行时实际加载的位置):
 由 `opencode plugin add github:dubuqiangu/opencode-elapsed-timer` 安装为全局包管理插件
   → 注册于 ~/.config/opencode/opencode.json 的 `plugins` 字段(完整包标识)
-  → 版本锁定到安装时的 commit hash(当前 5a2e3fb);`opencode plugin check` 检查更新
+  → 版本即最近一次安装/更新时的 commit;`opencode plugin check` 检查更新
   → 迭代发布闭环:改 tui.tsx → esbuild 验证 → git push
       → opencode plugin update github:dubuqiangu/opencode-elapsed-timer → 重启生效
   → 旧的 junction 本地加载已摘除,避免与包安装形成双重加载(2026-10-02)
