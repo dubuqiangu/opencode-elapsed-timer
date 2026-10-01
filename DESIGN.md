@@ -41,10 +41,12 @@ opencode-elapsed-timer/                  # 开发工作区(本项目)
 └── node_modules/                        # peer 依赖实装(不入库)
 
 # 部署方式(OpenCode 运行时实际加载的位置):
-C:\Users\<user>\.config\opencode\plugins\elapsed-timer\
-  → 目录联接(Junction),指向本工作区目录,单一数据源
-  → OpenCode 默认扫描 plugins\ 目录,加载路径不变,无需改配置
-  → 修改 tui.tsx 后重启 OpenCode 即生效,无需再同步两份文件
+由 `opencode plugin add github:dubuqiangu/opencode-elapsed-timer` 安装为全局包管理插件
+  → 注册于 ~/.config/opencode/opencode.json 的 `plugins` 字段(完整包标识)
+  → 版本锁定到安装时的 commit hash(当前 5a2e3fb);`opencode plugin check` 检查更新
+  → 迭代发布闭环:改 tui.tsx → esbuild 验证 → git push
+      → opencode plugin update github:dubuqiangu/opencode-elapsed-timer → 重启生效
+  → 旧的 junction 本地加载已摘除,避免与包安装形成双重加载(2026-10-02)
 ```
 
 **文件职责划分**
@@ -323,3 +325,4 @@ context.ui.slot({
 |---|---|---|
 | 2026-09-29 | 0.1.0 | 初版:等待计时 + 上轮时长 |
 | 2026-10-01 | 0.2.0 | 实时 tok/s:迁移到 `session.*` 事件族(根因:运行时弃用 `message.part.delta` 广播),增加精确 token 校准、防双计锁、空闲平均速率 |
+| 2026-10-02 | 0.2.0 | 分发方式升级:git 仓库化发布 GitHub(`github:dubuqiangu/opencode-elapsed-timer`),原生一键安装实测通过;移除 install.ps1 与 junction 加载,补齐 LICENSE/.gitignore/发布规范 package.json;运行逻辑无变化 |
