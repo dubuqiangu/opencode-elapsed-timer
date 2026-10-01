@@ -303,6 +303,7 @@ context.ui.slot({
   (完整 tsc 不可行:`@opencode/plugin/tui` 仅由 OpenCode 运行时解析,本地无类型)
 - **事件词汇取证**:官方桌面端 reducer 消费 `session.text.delta`(`anomalyco/opencode` `server-session-v2-reducer.ts`);运行时二进制含全部订阅事件名字符串
 - **实测**:重启 OpenCode(或等 watcher 热重载)后发起一轮对话,观察 footer 流式阶段出现 `⚡ tok/s`
+- **0.3.0 stats**:footer 出现 `Σ …`;`/tokens` 打开弹窗;API 探测可经 `opencode api get "/api/experimental/session/stats?from=<epoch_ms>"` 复现
 
 ---
 
@@ -311,6 +312,8 @@ context.ui.slot({
 | 方向 | 依赖的官方 API | 形态 |
 |---|---|---|
 | Session 状态面板(跟随当前 session) | `session.panel` slot(响应式 `panel.sessionID`) | 侧边面板,可全屏 |
+| ~~按模型/按日消耗统计~~ **已实现(0.3.0)** | 原生 `GET /api/experimental/session/stats` | footer Σ + `/tokens` 弹窗 |
+| ~~费用(USD)估算~~ **已随 0.3.0 实现** | stats API 自带 `cost`(模型未配价时为 0) | 弹窗内展示 |
 | 全 session 状态列表 | `sidebar.content` slot | 左侧列表:各 session 运行态 + 速率 |
 | 本轮/累计花费(USD) | `tokens` × 模型单价;`context.storage.store()` 持久化 | footer 或面板 |
 | 跑完弹"战报" | `context.ui.dialog.show()` | 本轮 token/时长/花费弹窗 |
@@ -326,3 +329,4 @@ context.ui.slot({
 | 2026-09-29 | 0.1.0 | 初版:等待计时 + 上轮时长 |
 | 2026-10-01 | 0.2.0 | 实时 tok/s:迁移到 `session.*` 事件族(根因:运行时弃用 `message.part.delta` 广播),增加精确 token 校准、防双计锁、空闲平均速率 |
 | 2026-10-02 | 0.2.0 | 分发方式升级:git 仓库化发布 GitHub(`github:dubuqiangu/opencode-elapsed-timer`),原生一键安装实测通过;移除 install.ps1 与 junction 加载,补齐 LICENSE/.gitignore/发布规范 package.json;运行逻辑无变化 |
+| 2026-10-03 | 0.3.0 | 跨会话消耗统计:footer 新增今日总耗 Σ,新增 `/tokens` 命令(今日按模型明细/近7日趋势/累计汇总);直接消费服务端原生 `GET /api/experimental/session/stats`(from/to 为 epoch 毫秒串,timezone 传本地时区),无采集层、无本地存储、无 RPC;API 不可用时静默降级 |

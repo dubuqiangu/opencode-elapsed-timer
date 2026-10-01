@@ -2,8 +2,11 @@
 
 OpenCode V2 TUI 插件:在输入框下方的状态行(`prompt.footer.status`)实时显示当前会话的等待时间与生成速率(tok/s)。
 
-- **运行中**:`⏱ waited 12.3s   ⚡ 42 tok/s` — 计时每 500ms 跳动;速率基于 10s 采样滑动窗口,流式停顿超过 4s(工具调用间隙)自动隐藏
-- **空闲**:`✓ last 8.4s   ⚡ 38 tok/s avg` — 上一轮耗时与全程平均速率
+- **运行中**:`⏱ waited 12.3s   ⚡ 42 tok/s   Σ 1.5M` — 计时每 500ms 跳动;速率基于 10s 采样滑动窗口,流式停顿超过 4s(工具调用间隙)自动隐藏;Σ 为今日 token 总耗
+- **空闲**:`✓ last 8.4s   ⚡ 38 tok/s avg   Σ 1.5M`
+- **`/tokens` 命令**(别名 `/tok`、`/usage`):打开统计详情弹窗 — 今日按供应商/模型明细(steps、in/out、费用)、今日合计(含 reasoning 与 cache 读写)、近 7 日 steps 趋势、累计总量(总步数/会话数/活跃天数/连续天数/总费用)、累计 Top 模型
+
+Token 消耗统计基于服务端原生聚合 API(`/api/experimental/session/stats`),跨全部会话(含无 TUI 的 headless 会话与子代理),插件零采集、零存储,服务重启不丢数据。
 
 ## 一键安装(OpenCode ≥ V2)
 

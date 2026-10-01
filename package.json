@@ -1,10 +1,15 @@
 {
   "name": "opencode-elapsed-timer",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
-  "description": "OpenCode V2 TUI plugin: live elapsed-time and tok/s throughput indicator in the prompt footer status row",
-  "exports": { ".": "./index.ts", "./tui": "./tui.tsx" },
-  "dependencies": { "@opencode/plugin": "latest" },
+  "description": "OpenCode V2 TUI plugin: live elapsed-time, tok/s throughput, and cross-session daily token usage stats in the prompt footer",
+  "exports": {
+    ".": "./index.ts",
+    "./tui": "./tui.tsx"
+  },
+  "dependencies": {
+    "@opencode/plugin": "latest"
+  },
   "peerDependencies": {
     "@opentui/core": ">=0.5.8",
     "@opentui/solid": ">=0.5.8",
