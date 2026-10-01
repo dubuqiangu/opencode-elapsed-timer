@@ -307,6 +307,37 @@ context.ui.slot({
 
 ---
 
+## 12A. Token 消耗统计(0.3.0,基于原生 SessionStats API)
+
+### 12A.1 架构决策:零采集层
+
+初版功能分解曾计划"服务端 `index.ts` 订阅事件 → 自聚合 → `ctx.storage` 落盘"。取证后确认 OpenCode V2 服务端**原生已做全量聚合**并暴露只读查询端点,采集层整体砍掉:
+
+| 原计划组件 | 取代方式 |
+|---|---|
+| 服务端采集(index.ts 订阅 session.* 聚合) | 服务端自身已统计(覆盖全部会话,含 headless 与 subagents) |
+| `ctx.storage` 持久化 + 保留策略 | 服务端数据库自管,插件重启不丢 |
+| 自定义 RPC 双端通道 | TUI 插件直接 `context.client.experimental.session.stats(...)` |
+| 去重/时区/重放风险 | 不存在(纯只读查询) |
+
+数据源:`GET /api/experimental/session/stats`(operationId `experimental.session.stats`)。
+**关键参数格式(实测)**:`from`/`to` 为 **epoch 毫秒字符串**(ISO/日期串会 500);`timezone` 传本地 IANA 时区名(影响 `activity[].date` 的日切归属);`project` 可选,缺省全局。响应:`tokens{input,output,reasoning,cache{read,write}}`、`cost`、`models[]`(按 Model.Ref 细分)、`activity[]`(按日 steps)、`sessions/steps/activeDays/streak`。
+
+### 12A.2 展示与刷新
+
+- **footer**:追加 `Σ <今日总量>`,与 tok/s 同行同级。口径 = 今日 `input+output+reasoning`(cache 读写成本结构不同,不计入 Σ,弹窗中单列)。今日为 0 或 API 不可用时隐藏。
+- **`/tokens` 弹窗**(别名 `/tok`、`/usage`,同时进命令面板):今日按模型明细(≤12 行,按输出排序)+ 今日合计 + 近 7 日 steps 趋势(取自全量查询的 `activity` 尾部 7 条)+ 累计总量 + 累计 Top 5 模型。`cost` 为 0(模型未配价)时整列隐藏。
+- **刷新策略**:插件加载时取一次;`session.step.ended/failed` 后 1.5s 防抖刷新;弹窗打开时双查询(今日+全量)并回写 footer 信号;500ms tick 检测跨零点自动重取并复位失败标记。
+- **降级**:client 方法缺失或请求失败 → Σ 静默隐藏、弹窗显示错误文案,`console.error` 记录一次;不阻塞计时/tok/s 主功能。
+
+### 12A.3 已知限制与风险
+
+- 端点带 `experimental`,OpenCode 升级可能变动 → 全部调用收敛在 `statsCall()` 单函数,便于替换。
+- TUI 内置 client 的方法路径 `experimental.session.stats` 依赖宿主版本 → 防御式访问,运行时验证。
+- 全量查询的 `models[]` 可能上百行(探活/失败请求 tokens 为 0)→ 弹窗按输出过滤排序,只显示 Top 5。
+
+---
+
 ## 13. 未来扩展(已评估可行性)
 
 | 方向 | 依赖的官方 API | 形态 |
