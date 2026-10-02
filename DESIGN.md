@@ -342,7 +342,7 @@ context.ui.slot({
 
 | 方向 | 依赖的官方 API | 形态 |
 |---|---|---|
-| Session 状态面板(跟随当前 session) | `session.panel` slot(响应式 `panel.sessionID`) | 侧边面板,可全屏 |
+| ~~Session 统计面板(跟随当前 session)~~ **已实现(0.4.0)** | `session.panel` slot(响应式 `panel.sessionID`,`f` 全屏、Esc 收起) | `/tokens` 开关式侧边面板 |
 | ~~按模型/按日消耗统计~~ **已实现(0.3.0)** | 原生 `GET /api/experimental/session/stats` | footer Σ + `/tokens` 弹窗 |
 | ~~费用(USD)估算~~ **已随 0.3.0 实现** | stats API 自带 `cost`(模型未配价时为 0) | 弹窗内展示 |
 | 全 session 状态列表 | `sidebar.content` slot | 左侧列表:各 session 运行态 + 速率 |

@@ -18,6 +18,14 @@ opencode plugin add github:dubuqiangu/opencode-elapsed-timer
 
 重启 opencode(或 `opencode service restart` 后重开 TUI)即可生效。
 
+## 更新
+
+```sh
+opencode plugin update github:dubuqiangu/opencode-elapsed-timer
+```
+
+(也可用 `opencode plugin list` 查看当前已安装版本。)重启后生效。
+
 ### 备选安装方式
 
 **克隆到全局插件目录**(OpenCode 自动发现,无需改配置):
