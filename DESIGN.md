@@ -368,7 +368,23 @@ context.ui.slot({
 - 压缩后窗口占用重置、会话累计继续增长——属正常语义,非 bug
 - 长会话 TUI 消息窗截断:窗口快照与轮数可能偏低,会话累计不受影响(权威聚合)
 - 模型未配价时 cost 为 0,费用段隐藏(沿用 0.3.0 约定)
-- tok/s 仍为流式期启发式估算(精确值仅在 step 结束产生,±20-30%,不可修)
+- tok/s:流式期为字符估算,0.6.2 起每轮用精确 token 自校准(EMA,见 §12C);空闲态显示消息级精确值
+
+### 12C. tok/s 精确化(0.6.2)
+
+**动机**:实测 tok/s 与 opencode 自带统计对不上。根因两层——① 流式期速率为字符启发式估算(±20-30%);② 旧空闲 avg 的分母是**整轮墙钟时间**(含工具执行),而原生统计口径是**消息级生成时长**。
+
+**实证**(本机真实消息,openapi `Session.Message.Assistant`):
+- 消息自带 `time: {created, streamed, completed}` 精确时间戳三元组(streamed≈completed,为流式完成时刻)
+- 精确速率 = `tokens.output + tokens.reasoning` ÷ `(completed − created)`(生成时长,不含工具执行)
+- 无原生实时 tps API(openapi 无 tps 字段,TUI 源码无 tok/s;基础设施侧 tps 全为遥测/console 统计,TUI 不可读)
+
+**实现**:
+- **空闲态精确值**:`message.updated` 事件在 `info.time.completed` 出现时计算精确速率存 `lastExactRates[sessionID]`;footer/面板空闲优先显示之(无 "avg" 后缀),缺失时回退旧启发式 avg(标注 avg)
+- **实时校准**:每条消息采纳精确 output 时(`adoptExact`),按 `精确/估算` 比率更新会话级校准系数 `calibs[sessionID]`(EMA:0.7×旧 + 0.3×新,钳位 0.25–4;样本 <20 token 跳过);流式滑窗速率显示时乘该校准系数——首条消息后即开始收敛,后续轮次偏差压到 ~5-10%
+- 校准系数按会话独立(子代理会话各自收敛),插件重启后重新学习
+
+**已知限制**:首条消息的实时值仍是未校准估算;极短消息(<20 token)不参与校准;`RateState` 增 `sessionID` 字段。
 
 ---
 
@@ -401,3 +417,4 @@ context.ui.slot({
 | 2026-10-03 | 0.5.0 | 更名:项目/包 `opencode-elapsed-timer` → **`opencode-usage-meter`**(功能早已超出"计时器":计时/tok/s/今日与累计 token/命中率/统计面板,名实对齐);插件 id `elapsed-timer` → `usage-meter`,面板名 `usage-meter.stats`,斜杠命令改为 **`/usage-full`**(移除 `/tokens` 及全部别名,避免与其他插件冲突);GitHub 仓库同步改名(旧地址自动重定向);功能集无变化 |
 | 2026-10-03 | 0.6.0 | 当前会话窗口微观:footer 追加 `ctx nn%`(≥80% 显示 `▲` 与警示色,即 80% 压缩预警);`/usage-full` 面板新增"当前窗口"(最后请求 in/out/reasoning/cache 分项 + 占用%)、"本会话累计"(权威 `session.tokens` 聚合 + 轮数 + 会话级命中率 + cost)、"子代理"(`parentID` 委派树 BFS 归总 + 会话子代理合计)三块;会话级命中率采用更严口径 `read ÷ (input+read+write)`;全部只读已同步 TUI 状态,零服务端调用;设计见 §12B |
 | 2026-10-03 | 0.6.1 | 代码审视修复:footer ctx 段改用 box(row) 兄弟 `<text>` 分色(不嵌套 text 于 text,规避渲染兼容风险);降级弹窗传入当前 sessionID,会话内弹窗兜底同样展示当前窗口/本会话/子代理三块;子代理块在全部子会话零用量时隐藏(防零值噪音);README 工作原理补 0.6 数据源说明;§12B 增"渲染细节"节 |
+| 2026-10-03 | 0.6.2 | tok/s 精确化:空闲态改为消息级**精确速率**(`output+reasoning ÷ created→completed`,与原生统计同口径,旧 avg 降为回退);流式估算加**每轮自校准**(会话级 EMA 系数 `精确/估算`,钳位 0.25-4,后续轮次偏差 ~5-10%);根因与实证见 §12C |

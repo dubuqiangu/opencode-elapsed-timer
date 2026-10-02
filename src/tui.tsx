@@ -64,6 +64,7 @@ function fmtUSD(n: number): string {
 
 type MsgRate = { est: number; exact?: number; refEst: number }
 type RateState = {
+  sessionID: string
   msgs: Map<string, MsgRate>
   samples: Array<{ t: number; tok: number }>
   sessionVocab: boolean // saw a session.* delta this turn -> ignore legacy deltas
@@ -127,10 +128,18 @@ export default Plugin.define({
     const starts = new Map<string, number>()
     const lastDurations = new Map<string, number>()
     const lastAvgRates = new Map<string, number>()
+    // v0.6.2: exact per-message generation rate (output+reasoning over the
+    // message's own created→completed span) — replaces the heuristic idle avg.
+    const lastExactRates = new Map<string, number>()
+    // v0.6.2: live-estimate calibration factor per session (EMA of exact/est),
+    // applied to streaming tok/s so it converges toward native accounting.
+    const calibs = new Map<string, number>()
+    const calibOf = (sessionID: string): number => calibs.get(sessionID) ?? 1
 
     // Token-flow tracking per session, active only during a run.
     const rates = new Map<string, RateState>()
-    const newRateState = (): RateState => ({ msgs: new Map(), samples: [], sessionVocab: false })
+    const newRateState = (sessionID: string): RateState =>
+      ({ sessionID, msgs: new Map(), samples: [], sessionVocab: false })
 
     const dataOf = (event: any): any => event?.data ?? event?.properties ?? event
 
@@ -154,7 +163,7 @@ export default Plugin.define({
       if (!starts.has(sessionID)) return undefined // only track during a run
       let st = rates.get(sessionID)
       if (!st) {
-        st = newRateState()
+        st = newRateState(sessionID)
         rates.set(sessionID, st)
       }
       return st
@@ -182,6 +191,14 @@ export default Plugin.define({
       const key = messageID ?? "_anon"
       const m = st.msgs.get(key) ?? { est: 0, refEst: 0 }
       if (force || out > msgTotal(m)) {
+        // v0.6.2: learn the estimator's correction ratio (exact/estimated)
+        // and fold it into the session calibration factor for live rates.
+        const before = msgTotal(m)
+        if (out > 0 && before > 20) {
+          const prev = calibs.get(st.sessionID) ?? 1
+          const next = Math.min(4, Math.max(0.25, prev * 0.7 + (out / before) * 0.3))
+          calibs.set(st.sessionID, next)
+        }
         m.exact = out
         m.refEst = m.est
         st.msgs.set(key, m)
@@ -412,14 +429,19 @@ export default Plugin.define({
         let line = `  ⏱ waited ${format(currentTime - started)}`
         const rate = rates.get(sessionID)
         const tps = rate ? liveRate(rate, currentTime) : undefined
-        if (tps !== undefined) line += `   ⚡ ${tps} tok/s`
+        if (tps !== undefined) line += `   ⚡ ${Math.round(tps * calibOf(sessionID))} tok/s`
         lines.push(line)
       } else if (running) {
         lines.push("  ⏱ running")
       } else if (last !== undefined) {
         let line = `  ✓ last ${format(last)}`
-        const avg = lastAvgRates.get(sessionID)
-        if (avg !== undefined) line += `   ⚡ ${avg} tok/s avg`
+        const exact = lastExactRates.get(sessionID)
+        if (exact !== undefined) {
+          line += `   ⚡ ${exact} tok/s`
+        } else {
+          const avg = lastAvgRates.get(sessionID)
+          if (avg !== undefined) line += `   ⚡ ${avg} tok/s avg`
+        }
         lines.push(line)
       } else {
         lines.push("  (空闲)")
@@ -659,7 +681,7 @@ export default Plugin.define({
       const sessionID = sessionIDOf(event)
       if (!sessionID) return
       starts.set(sessionID, Date.now())
-      rates.set(sessionID, newRateState())
+      rates.set(sessionID, newRateState(sessionID))
     })
     listen("session.step.started", (event: any) => {
       // Recovery if the execution.started event was missed (e.g. TUI opened mid-run).
@@ -668,7 +690,7 @@ export default Plugin.define({
       const started = data?.started
       if (sessionID && typeof started === "number" && !starts.has(sessionID)) {
         starts.set(sessionID, started)
-        rates.set(sessionID, newRateState())
+        rates.set(sessionID, newRateState(sessionID))
       }
     })
     const finishTurn = (event: any) => {
@@ -743,6 +765,15 @@ export default Plugin.define({
       if (info?.role !== "assistant" || typeof info?.tokens?.output !== "number") return
       const sessionID = typeof data?.sessionID === "string" ? data.sessionID : undefined
       if (!sessionID) return
+      // v0.6.2: exact generation rate once the message completes —
+      // (output + reasoning) / (completed - created), the same basis the
+      // native per-message statistics use.
+      const t = info.time
+      if (typeof t?.completed === "number" && typeof t?.created === "number") {
+        const dur = (t.completed - t.created) / 1000
+        const toks = (info.tokens.output ?? 0) + (info.tokens.reasoning ?? 0)
+        if (dur >= 0.5 && toks > 0) lastExactRates.set(sessionID, Math.round(toks / dur))
+      }
       const st = rateStateOf(sessionID)
       if (!st) return
       const out = info.tokens.output
@@ -769,13 +800,18 @@ export default Plugin.define({
           parts.push(`⏱ waited ${format(currentTime - started)}`)
           const rate = rates.get(sessionID)
           const tps = rate ? liveRate(rate, currentTime) : undefined
-          if (tps !== undefined) parts.push(`⚡ ${tps} tok/s`)
+          if (tps !== undefined) parts.push(`⚡ ${Math.round(tps * calibOf(sessionID))} tok/s`)
         } else if (running) {
           parts.push(`⏱ running`)
         } else if (last !== undefined) {
           parts.push(`✓ last ${format(last)}`)
-          const avg = lastAvgRates.get(sessionID)
-          if (avg !== undefined) parts.push(`⚡ ${avg} tok/s avg`)
+          const exact = lastExactRates.get(sessionID)
+          if (exact !== undefined) {
+            parts.push(`⚡ ${exact} tok/s`)
+          } else {
+            const avg = lastAvgRates.get(sessionID)
+            if (avg !== undefined) parts.push(`⚡ ${avg} tok/s avg`)
+          }
         }
         // Today's total usage across all sessions (server aggregate), same row
         // as the tok/s readout. Hidden when unavailable or zero. The cache hit
