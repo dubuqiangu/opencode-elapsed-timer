@@ -365,4 +365,4 @@ context.ui.slot({
 | 2026-10-03 | 0.4.0 | `/tokens` 升级为开关式 `session.panel` 侧边栏面板:头部当前会话实时读数(计时/tok/s/Σ,createMemo 响应式),`/tokens`/Esc 收起、`f` 全屏、面板打开期间 step 结束自动刷新;会话外降级为弹窗;footer 保持不变 |
 | 2026-10-03 | 0.4.1 | 目录布局改为 `src/`(官方示例同款):`index.ts`/`tui.tsx` 移入 `src/`,exports 指向 `./src/*`;纯结构调整,运行逻辑无变化 |
 | 2026-10-03 | 0.4.2 | 缓存命中率:footer Σ 旁追加 `hit nn%`(今日口径),`/tokens` 面板"今日合计"与"累计"均显示命中率;口径 `cache.read ÷ (cache.read + input)`,无输入上下文时隐藏 |
-| 2026-10-02 | 0.5.0 | 更名:项目/包 `opencode-elapsed-timer` → **`opencode-usage-meter`**(功能早已超出"计时器":计时/tok/s/今日与累计 token/命中率/统计面板,名实对齐);插件 id `elapsed-timer` → `usage-meter`,面板名 `usage-meter.stats`,斜杠命令改为 **`/usage-full`**(移除 `/tokens` 及全部别名,避免与其他插件冲突);GitHub 仓库同步改名(旧地址自动重定向);功能集无变化 |
+| 2026-10-03 | 0.5.0 | 更名:项目/包 `opencode-elapsed-timer` → **`opencode-usage-meter`**(功能早已超出"计时器":计时/tok/s/今日与累计 token/命中率/统计面板,名实对齐);插件 id `elapsed-timer` → `usage-meter`,面板名 `usage-meter.stats`,斜杠命令改为 **`/usage-full`**(移除 `/tokens` 及全部别名,避免与其他插件冲突);GitHub 仓库同步改名(旧地址自动重定向);功能集无变化 |
