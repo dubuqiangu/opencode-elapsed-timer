@@ -1,5 +1,5 @@
 /** @jsxImportSource @opentui/solid */
-// OpenCode V2 TUI plugin: live elapsed-time indicator in the prompt footer status row.
+// OpenCode V2 TUI plugin "usage-meter": usage indicators in the prompt footer status row.
 // Shows for the current session: a ticking "waited" timer while a run is active,
 // a live output tok/s rate while tokens are streaming, and the finished duration
 // (plus average tok/s) of the last turn when idle.
@@ -11,13 +11,15 @@
 //   message.part.delta / message.updated kept as legacy fallbacks (guarded).
 //
 // v0.3.0 — Daily usage stats (server-native aggregation, read-only):
-//   footer appends today's total token usage (Σ), "/tokens" opens a detail view
+//   footer appends today's total token usage (Σ), "/usage-full" opens a detail view
 //   (today per model, 7-day trend, cumulative totals). Queries the server's own
 //   GET /api/experimental/session/stats; no local accumulation, storage or RPC.
 //   Degrades silently (Σ hidden, panel shows the error) if the API is unavailable.
-// v0.4.0 — "/tokens" becomes a toggleable session.panel sidebar contribution
+// v0.4.0 — the detail view becomes a toggleable session.panel sidebar contribution
 //   (live per-session timer/tok/s header + detail tables; "f" toggles fullscreen,
-//   escape or /tokens collapses); plain dialog fallback outside a session.
+//   escape or /usage-full collapses); plain dialog fallback outside a session.
+// v0.5.0 — renamed from "elapsed-timer" to "usage-meter"; slash command is
+//   /usage-full (old /tokens with aliases removed). Feature set unchanged.
 import { Plugin } from "@opencode/plugin/tui"
 import { createMemo, createSignal } from "solid-js"
 
@@ -105,7 +107,7 @@ function liveRate(st: RateState, now: number): number | undefined {
 }
 
 export default Plugin.define({
-  id: "elapsed-timer",
+  id: "usage-meter",
   setup(context: any) {
     // Ticking clock drives the elapsed recompute while a run is active, and
     // detects the midnight rollover for the daily usage stats.
@@ -144,7 +146,7 @@ export default Plugin.define({
       try {
         subs.push(context.data.on(type, handler))
       } catch (error) {
-        console.error(`[elapsed-timer] ${type} subscription failed:`, error)
+        console.error(`[usage-meter] ${type} subscription failed:`, error)
       }
     }
 
@@ -219,7 +221,7 @@ export default Plugin.define({
       const call = statsCall()
       if (!call) {
         statsFailed = true
-        console.error("[elapsed-timer] session stats client method unavailable")
+        console.error("[usage-meter] session stats client method unavailable")
         return
       }
       statsBusy = true
@@ -229,7 +231,7 @@ export default Plugin.define({
         const data = unwrap(await call(input))
         if (data?.tokens) setTodayStats(data)
       } catch (error) {
-        console.error("[elapsed-timer] session stats fetch failed:", error)
+        console.error("[usage-meter] session stats fetch failed:", error)
       } finally {
         statsBusy = false
       }
@@ -250,9 +252,9 @@ export default Plugin.define({
       }, delayMs)
     }
 
-    // --- /tokens stats view: sidebar panel (in-session) + dialog fallback ---
+    // --- /usage-full stats view: sidebar panel (in-session) + dialog fallback ---
     const [detail, setDetail] = createSignal<any>(undefined)
-    const PANEL_NAME = "elapsed-timer.stats"
+    const PANEL_NAME = "usage-meter.stats"
 
     // Live per-session readout (timer / tok/s / today Σ) for the panel header.
     const sessionLines = (sessionID: string | undefined): string[] => {
@@ -418,7 +420,7 @@ export default Plugin.define({
       }
     }
 
-    // /tokens toggles the sidebar panel: open when closed, collapse when open.
+    // /usage-full toggles the sidebar panel: open when closed, collapse when open.
     // Falls back to a plain dialog outside a session (panel.open -> false).
     const runTokensCommand = async (): Promise<void> => {
       const panelAPI = (context.ui as any)?.panel
@@ -447,13 +449,13 @@ export default Plugin.define({
     }
 
     // Sidebar panel contribution: the host owns sizing/focus/close (collapse
-    // via escape or toggling /tokens; "f" toggles fullscreen while focused).
+    // via escape or toggling /usage-full; "f" toggles fullscreen while focused).
     const StatsPanel = (props: { panel: any }) => {
       try {
         ;(context.keymap as any)?.layer?.(() => ({
           commands: [
             {
-              id: "elapsed-timer.stats.fullscreen",
+              id: "usage-meter.stats.fullscreen",
               title: "统计面板全屏",
               bind: "f",
               run: () => {
@@ -476,21 +478,21 @@ export default Plugin.define({
           panel?.name === PANEL_NAME ? <StatsPanel panel={panel} /> : null,
       })
     } catch (error) {
-      console.error("[elapsed-timer] session.panel slot failed:", error)
+      console.error("[usage-meter] session.panel slot failed:", error)
     }
 
-    // /tokens (aliases /tok, /usage) + palette command "Token 消耗统计".
+    // /usage-full + palette command "用量统计".
     let layerDispose: any
     try {
       layerDispose = (context.keymap as any)?.layer?.(() => ({
         mode: "global",
         commands: [
           {
-            id: "elapsed-timer.tokens",
-            title: "Token 消耗统计(面板开关)",
-            group: "elapsed-timer",
+            id: "usage-meter.usage",
+            title: "用量统计(面板开关)",
+            group: "usage-meter",
             palette: true,
-            slash: { name: "tokens", aliases: ["tok", "usage"] },
+            slash: { name: "usage-full" },
             run: () => {
               void runTokensCommand()
             },
@@ -498,7 +500,7 @@ export default Plugin.define({
         ],
       }))
     } catch (error) {
-      console.error("[elapsed-timer] keymap layer failed:", error)
+      console.error("[usage-meter] keymap layer failed:", error)
     }
 
     // --- Session lifecycle events ------------------------------------------

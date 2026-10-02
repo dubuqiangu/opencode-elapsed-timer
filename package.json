@@ -1,8 +1,8 @@
 {
-  "name": "opencode-elapsed-timer",
-  "version": "0.4.2",
+  "name": "opencode-usage-meter",
+  "version": "0.5.0",
   "type": "module",
-  "description": "OpenCode V2 TUI plugin: live elapsed-time, tok/s throughput, and cross-session daily token usage stats in the prompt footer",
+  "description": "OpenCode V2 TUI plugin: usage meter — live elapsed-time, tok/s throughput, daily token usage, and cache hit rate in the prompt footer, plus /usage-full stats panel",
   "exports": {
     ".": "./src/index.ts",
     "./tui": "./src/tui.tsx"

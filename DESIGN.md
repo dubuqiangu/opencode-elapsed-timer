@@ -1,4 +1,4 @@
-# opencode-elapsed-timer 设计文档
+# opencode-usage-meter 设计文档
 
 > OpenCode V2 TUI 插件:会话等待计时器 + 实时输出速率(tok/s)指示器
 > 版本:v0.2.0(设计基线:tui.tsx @ 2026-10-01)
@@ -24,7 +24,7 @@
 ## 2. 代码目录树
 
 ```
-opencode-elapsed-timer/                  # 开发工作区(本项目)
+opencode-usage-meter/                   # 开发工作区(本项目;本地目录随 0.5.0 同步改名)
 ├── DESIGN.md                           # 本设计文档
 ├── README.md                           # 使用说明
 ├── LICENSE / .gitignore                # MIT 许可证 / Git 忽略规则(node_modules、package-lock 不入库)
@@ -42,11 +42,11 @@ opencode-elapsed-timer/                  # 开发工作区(本项目)
 └── node_modules/                        # peer 依赖实装(不入库)
 
 # 部署方式(OpenCode 运行时实际加载的位置):
-由 `opencode plugin add github:dubuqiangu/opencode-elapsed-timer` 安装为全局包管理插件
+由 `opencode plugin add github:dubuqiangu/opencode-usage-meter` 安装为全局包管理插件
   → 注册于 ~/.config/opencode/opencode.json 的 `plugins` 字段(完整包标识)
   → 版本即最近一次安装/更新时的 commit;`opencode plugin check` 检查更新
   → 迭代发布闭环:改 src/tui.tsx → esbuild 验证 → git push
-      → opencode plugin update github:dubuqiangu/opencode-elapsed-timer → 重启生效
+      → opencode plugin update github:dubuqiangu/opencode-usage-meter → 重启生效
   → 旧的 junction 本地加载已摘除,避免与包安装形成双重加载(2026-10-02)
 ```
 
@@ -138,7 +138,7 @@ sequenceDiagram
     participant U as 用户
     participant TUI as OpenCode TUI
     participant S as Server 事件总线
-    participant P as elapsed-timer 插件
+    participant P as usage-meter 插件
     participant M as AI Provider
 
     U->>TUI: 提交 prompt
@@ -327,7 +327,7 @@ context.ui.slot({
 ### 12A.2 展示与刷新
 
 - **footer**:追加 `Σ <今日总量>`,与 tok/s 同行同级。口径 = 今日 `input+output+reasoning`(cache 读写成本结构不同,不计入 Σ,弹窗中单列)。今日为 0 或 API 不可用时隐藏。0.4.2 起 Σ 旁追加 `hit <nn>%` 今日缓存命中率(口径 `cache.read ÷ (cache.read + input)`,分母 0 隐藏)。
-- **`/tokens` 弹窗**(别名 `/tok`、`/usage`,同时进命令面板):今日按模型明细(≤12 行,按输出排序)+ 今日合计 + 近 7 日 steps 趋势(取自全量查询的 `activity` 尾部 7 条)+ 累计总量 + 累计 Top 5 模型。`cost` 为 0(模型未配价)时整列隐藏。0.4.0 起升级为**开关式 `session.panel` 侧边面板**(头部含当前会话实时计时/tok/s/今日 Σ,`createMemo` 响应式刷新;`/tokens` 或 `Esc` 收起,`f` 全屏,面板打开期间每次 step 结束自动刷新今日+全量明细;会话外降级为普通弹窗)。
+- **`/usage-full` 命令**(0.5.0 前为 `/tokens`,别名 `/tok`、`/usage` 已移除;同时进命令面板):今日按模型明细(≤12 行,按输出排序)+ 今日合计 + 近 7 日 steps 趋势(取自全量查询的 `activity` 尾部 7 条)+ 累计总量 + 累计 Top 5 模型。`cost` 为 0(模型未配价)时整列隐藏。0.4.0 起升级为**开关式 `session.panel` 侧边面板**(头部含当前会话实时计时/tok/s/今日 Σ,`createMemo` 响应式刷新;`/usage-full` 或 `Esc` 收起,`f` 全屏,面板打开期间每次 step 结束自动刷新今日+全量明细;会话外降级为普通弹窗)。
 - **刷新策略**:插件加载时取一次;`session.step.ended/failed` 后 1.5s 防抖刷新;弹窗打开时双查询(今日+全量)并回写 footer 信号;500ms tick 检测跨零点自动重取并复位失败标记。
 - **降级**:client 方法缺失或请求失败 → Σ 静默隐藏、弹窗显示错误文案,`console.error` 记录一次;不阻塞计时/tok/s 主功能。
 
@@ -343,8 +343,8 @@ context.ui.slot({
 
 | 方向 | 依赖的官方 API | 形态 |
 |---|---|---|
-| ~~Session 统计面板(跟随当前 session)~~ **已实现(0.4.0)** | `session.panel` slot(响应式 `panel.sessionID`,`f` 全屏、Esc 收起) | `/tokens` 开关式侧边面板 |
-| ~~按模型/按日消耗统计~~ **已实现(0.3.0)** | 原生 `GET /api/experimental/session/stats` | footer Σ + `/tokens` 弹窗 |
+| ~~Session 统计面板(跟随当前 session)~~ **已实现(0.4.0)** | `session.panel` slot(响应式 `panel.sessionID`,`f` 全屏、Esc 收起) | `/usage-full` 开关式侧边面板 |
+| ~~按模型/按日消耗统计~~ **已实现(0.3.0)** | 原生 `GET /api/experimental/session/stats` | footer Σ + `/usage-full` 面板 |
 | ~~费用(USD)估算~~ **已随 0.3.0 实现** | stats API 自带 `cost`(模型未配价时为 0) | 弹窗内展示 |
 | 全 session 状态列表 | `sidebar.content` slot | 左侧列表:各 session 运行态 + 速率 |
 | 本轮/累计花费(USD) | `tokens` × 模型单价;`context.storage.store()` 持久化 | footer 或面板 |
@@ -365,3 +365,4 @@ context.ui.slot({
 | 2026-10-03 | 0.4.0 | `/tokens` 升级为开关式 `session.panel` 侧边栏面板:头部当前会话实时读数(计时/tok/s/Σ,createMemo 响应式),`/tokens`/Esc 收起、`f` 全屏、面板打开期间 step 结束自动刷新;会话外降级为弹窗;footer 保持不变 |
 | 2026-10-03 | 0.4.1 | 目录布局改为 `src/`(官方示例同款):`index.ts`/`tui.tsx` 移入 `src/`,exports 指向 `./src/*`;纯结构调整,运行逻辑无变化 |
 | 2026-10-03 | 0.4.2 | 缓存命中率:footer Σ 旁追加 `hit nn%`(今日口径),`/tokens` 面板"今日合计"与"累计"均显示命中率;口径 `cache.read ÷ (cache.read + input)`,无输入上下文时隐藏 |
+| 2026-10-02 | 0.5.0 | 更名:项目/包 `opencode-elapsed-timer` → **`opencode-usage-meter`**(功能早已超出"计时器":计时/tok/s/今日与累计 token/命中率/统计面板,名实对齐);插件 id `elapsed-timer` → `usage-meter`,面板名 `usage-meter.stats`,斜杠命令改为 **`/usage-full`**(移除 `/tokens` 及全部别名,避免与其他插件冲突);GitHub 仓库同步改名(旧地址自动重定向);功能集无变化 |
