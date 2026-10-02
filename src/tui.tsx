@@ -293,6 +293,15 @@ export default Plugin.define({
       const all = st?.all as any
       const lines: string[] = []
 
+      // Cache hit rate: share of the model's input context served from cache.
+      // Undefined when there is no input context at all (nothing to rate).
+      const cacheHit = (tk: any): number | undefined => {
+        const read = tk?.cache?.read ?? 0
+        const input = tk?.input ?? 0
+        const denom = read + input
+        return denom > 0 ? Math.round((read / denom) * 100) : undefined
+      }
+
       const modelRow = (u: any): string => {
         const name = `${u.model?.providerID ?? "?"}/${u.model?.id ?? "?"}`.slice(0, 36)
         const cost = fmtUSD(u.cost ?? 0)
@@ -311,11 +320,13 @@ export default Plugin.define({
       if (models.length > 12) lines.push(`  …另有 ${models.length - 12} 个模型`)
       const tk = today?.tokens ?? {}
       const todayCost = fmtUSD(today?.cost ?? 0)
+      const todayHit = cacheHit(tk)
       lines.push(
         `  合计 ${String(today?.steps ?? 0)}步 · ` +
           `in ${fmtNum(tk.input ?? 0)}  out ${fmtNum(tk.output ?? 0)}  ` +
           `reasoning ${fmtNum(tk.reasoning ?? 0)} · ` +
           `cache R ${fmtNum(tk.cache?.read ?? 0)}  W ${fmtNum(tk.cache?.write ?? 0)}` +
+          `${todayHit !== undefined ? `  命中 ${todayHit}%` : ""}` +
           `${todayCost ? ` · ${todayCost}` : ""}`,
       )
 
@@ -334,12 +345,14 @@ export default Plugin.define({
       lines.push("")
       lines.push("── 累计 ──")
       const atk = all?.tokens ?? {}
+      const allHit = cacheHit(atk)
       lines.push(
         `  tokens  in ${fmtNum(atk.input ?? 0)}  out ${fmtNum(atk.output ?? 0)}  ` +
           `reasoning ${fmtNum(atk.reasoning ?? 0)}`,
       )
       lines.push(
-        `  cache  R ${fmtNum(atk.cache?.read ?? 0)}  W ${fmtNum(atk.cache?.write ?? 0)}`,
+        `  cache  R ${fmtNum(atk.cache?.read ?? 0)}  W ${fmtNum(atk.cache?.write ?? 0)}` +
+          `${allHit !== undefined ? `  命中 ${allHit}%` : ""}`,
       )
       const allCost = fmtUSD(all?.cost ?? 0)
       lines.push(
@@ -612,12 +625,18 @@ export default Plugin.define({
           if (avg !== undefined) parts.push(`⚡ ${avg} tok/s avg`)
         }
         // Today's total usage across all sessions (server aggregate), same row
-        // as the tok/s readout. Hidden when unavailable or zero.
+        // as the tok/s readout. Hidden when unavailable or zero. The cache hit
+        // rate (cache.read / (cache.read + input)) rides along with it.
         const stats = todayStats()
         if (stats) {
           const tk = stats?.tokens
           const total = (tk?.input ?? 0) + (tk?.output ?? 0) + (tk?.reasoning ?? 0)
-          if (total > 0) parts.push(`Σ ${fmtNum(total)}`)
+          if (total > 0) {
+            parts.push(`Σ ${fmtNum(total)}`)
+            const read = tk?.cache?.read ?? 0
+            const denom = read + (tk?.input ?? 0)
+            if (denom > 0) parts.push(`hit ${Math.round((read / denom) * 100)}%`)
+          }
         }
         if (parts.length === 0) return null
 
