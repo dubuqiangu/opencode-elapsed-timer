@@ -11,12 +11,15 @@
 //   message.part.delta / message.updated kept as legacy fallbacks (guarded).
 //
 // v0.3.0 — Daily usage stats (server-native aggregation, read-only):
-//   footer appends today's total token usage (Σ), "/tokens" opens a detail dialog
+//   footer appends today's total token usage (Σ), "/tokens" opens a detail view
 //   (today per model, 7-day trend, cumulative totals). Queries the server's own
 //   GET /api/experimental/session/stats; no local accumulation, storage or RPC.
-//   Degrades silently (Σ hidden, dialog shows the error) if the API is unavailable.
+//   Degrades silently (Σ hidden, panel shows the error) if the API is unavailable.
+// v0.4.0 — "/tokens" becomes a toggleable session.panel sidebar contribution
+//   (live per-session timer/tok/s header + detail tables; "f" toggles fullscreen,
+//   escape or /tokens collapses); plain dialog fallback outside a session.
 import { Plugin } from "@opencode/plugin/tui"
-import { createSignal } from "solid-js"
+import { createMemo, createSignal } from "solid-js"
 
 function format(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000))
@@ -189,7 +192,6 @@ export default Plugin.define({
     // The server aggregates every session (TUI, headless, subagents); the
     // plugin only renders. `from`/`to` are epoch-millisecond strings.
     const [todayStats, setTodayStats] = createSignal<any>(undefined)
-    const [dialogStats, setDialogStats] = createSignal<any>(undefined)
     let statsFailed = false // one-shot: stop retrying until next day / restart
     let statsBusy = false
     let statsTimer: ReturnType<typeof setTimeout> | undefined
@@ -234,25 +236,61 @@ export default Plugin.define({
     }
 
     // Debounced refresh after each completed step keeps the footer Σ current
-    // without hammering the API during multi-step turns.
+    // without hammering the API during multi-step turns. An open stats panel
+    // is refreshed too (today + all-time detail).
     const scheduleStatsRefresh = (delayMs = 1500): void => {
       if (statsTimer !== undefined) return
       statsTimer = setTimeout(() => {
         statsTimer = undefined
         void fetchToday()
+        try {
+          const current = (context.ui as any)?.panel?.current?.()
+          if (current === PANEL_NAME || current?.name === PANEL_NAME) void ensureDetail()
+        } catch {}
       }, delayMs)
     }
 
-    // --- /tokens detail dialog ---------------------------------------------
-    const TokensDialog = () => {
-      const st = dialogStats()
-      const base = (context.theme as any)?.text?.base
-      const muted = (context.theme as any)?.text?.muted
-      if (!st) return <text fg={muted}>Token 统计加载中…</text>
-      if (st.error) return <text fg={muted}>统计加载失败:{st.error}</text>
+    // --- /tokens stats view: sidebar panel (in-session) + dialog fallback ---
+    const [detail, setDetail] = createSignal<any>(undefined)
+    const PANEL_NAME = "elapsed-timer.stats"
 
-      const today = st.today as any
-      const all = st.all as any
+    // Live per-session readout (timer / tok/s / today Σ) for the panel header.
+    const sessionLines = (sessionID: string | undefined): string[] => {
+      if (!sessionID) return []
+      const lines: string[] = ["── 当前会话 ──"]
+      const running = context.data?.session?.status?.(sessionID) === "running"
+      const started = starts.get(sessionID)
+      const last = lastDurations.get(sessionID)
+      const currentTime = now()
+      if (running && started !== undefined) {
+        let line = `  ⏱ waited ${format(currentTime - started)}`
+        const rate = rates.get(sessionID)
+        const tps = rate ? liveRate(rate, currentTime) : undefined
+        if (tps !== undefined) line += `   ⚡ ${tps} tok/s`
+        lines.push(line)
+      } else if (running) {
+        lines.push("  ⏱ running")
+      } else if (last !== undefined) {
+        let line = `  ✓ last ${format(last)}`
+        const avg = lastAvgRates.get(sessionID)
+        if (avg !== undefined) line += `   ⚡ ${avg} tok/s avg`
+        lines.push(line)
+      } else {
+        lines.push("  (空闲)")
+      }
+      const ts = todayStats()
+      if (ts) {
+        const tk = ts?.tokens
+        const total = (tk?.input ?? 0) + (tk?.output ?? 0) + (tk?.reasoning ?? 0)
+        if (total > 0) lines.push(`  Σ 今日 ${fmtNum(total)}`)
+      }
+      lines.push("")
+      return lines
+    }
+
+    const detailLines = (st: any): string[] => {
+      const today = st?.today as any
+      const all = st?.all as any
       const lines: string[] = []
 
       const modelRow = (u: any): string => {
@@ -319,18 +357,36 @@ export default Plugin.define({
         for (const u of topModels) lines.push(modelRow(u))
       }
 
-      return <text fg={base}>{lines.join("\n")}</text>
+      return lines
     }
 
-    const openTokensDialog = async (): Promise<void> => {
-      try {
-        context.ui.dialog.set({ size: "large", centered: true })
-      } catch {}
-      setDialogStats(undefined)
-      context.ui.dialog.show(() => <TokensDialog />, () => {})
+    // Shared reactive body: live session section (when in a session) + the
+    // detail tables. createMemo keeps the panel ticking with the 500ms clock
+    // and refreshing on every signal update.
+    const StatsBody = (props: { sessionID?: string }) => {
+      const lines = createMemo(() => {
+        const out = [...sessionLines(props.sessionID)]
+        const st = detail()
+        if (!st) {
+          out.push("统计加载中…")
+          return out
+        }
+        if (st.error) {
+          out.push(`统计加载失败:${st.error}`)
+          return out
+        }
+        out.push(...detailLines(st))
+        return out
+      })
+      const base = (context.theme as any)?.text?.base
+      return <text fg={base}>{lines().join("\n")}</text>
+    }
+
+    // Fetch today + all-time detail once per open/refresh (two API calls).
+    const ensureDetail = async (): Promise<void> => {
       const call = statsCall()
       if (!call) {
-        setDialogStats({ error: "stats client method unavailable(OpenCode 版本过旧?)" })
+        setDetail({ error: "stats client method unavailable(OpenCode 版本过旧?)" })
         return
       }
       try {
@@ -343,10 +399,71 @@ export default Plugin.define({
         const all = unwrap(allRes)
         if (!today?.tokens || !all?.tokens) throw new Error("空响应")
         setTodayStats(today) // keep the footer Σ in sync too
-        setDialogStats({ today, all })
+        setDetail({ today, all })
       } catch (error: any) {
-        setDialogStats({ error: String(error?.message ?? error) })
+        setDetail({ error: String(error?.message ?? error) })
       }
+    }
+
+    // /tokens toggles the sidebar panel: open when closed, collapse when open.
+    // Falls back to a plain dialog outside a session (panel.open -> false).
+    const runTokensCommand = async (): Promise<void> => {
+      const panelAPI = (context.ui as any)?.panel
+      try {
+        const current = panelAPI?.current?.()
+        if (current === PANEL_NAME || current?.name === PANEL_NAME) {
+          panelAPI?.close?.()
+          return
+        }
+      } catch {}
+      let opened: any = true
+      try {
+        opened = panelAPI?.open?.(PANEL_NAME)
+      } catch {
+        opened = false
+      }
+      if (opened === false) {
+        // Outside a session: dialog fallback (no live section available).
+        try {
+          context.ui.dialog.set({ size: "large", centered: true })
+        } catch {}
+        setDetail(undefined)
+        context.ui.dialog.show(() => <StatsBody />, () => {})
+      }
+      void ensureDetail()
+    }
+
+    // Sidebar panel contribution: the host owns sizing/focus/close (collapse
+    // via escape or toggling /tokens; "f" toggles fullscreen while focused).
+    const StatsPanel = (props: { panel: any }) => {
+      try {
+        ;(context.keymap as any)?.layer?.(() => ({
+          commands: [
+            {
+              id: "elapsed-timer.stats.fullscreen",
+              title: "统计面板全屏",
+              bind: "f",
+              run: () => {
+                try {
+                  props.panel?.toggleFullscreen?.()
+                } catch {}
+              },
+            },
+          ],
+        }))
+      } catch {}
+      return <StatsBody sessionID={props.panel?.sessionID} />
+    }
+
+    let unregisterPanel: any
+    try {
+      unregisterPanel = context.ui.slot({
+        append: "session.panel",
+        render: (panel: any) =>
+          panel?.name === PANEL_NAME ? <StatsPanel panel={panel} /> : null,
+      })
+    } catch (error) {
+      console.error("[elapsed-timer] session.panel slot failed:", error)
     }
 
     // /tokens (aliases /tok, /usage) + palette command "Token 消耗统计".
@@ -357,12 +474,12 @@ export default Plugin.define({
         commands: [
           {
             id: "elapsed-timer.tokens",
-            title: "Token 消耗统计",
+            title: "Token 消耗统计(面板开关)",
             group: "elapsed-timer",
             palette: true,
             slash: { name: "tokens", aliases: ["tok", "usage"] },
             run: () => {
-              void openTokensDialog()
+              void runTokensCommand()
             },
           },
         ],
@@ -512,6 +629,11 @@ export default Plugin.define({
       clearInterval(timer)
       if (statsTimer !== undefined) clearTimeout(statsTimer)
       if (typeof unregister === "function") unregister()
+      if (typeof unregisterPanel === "function") {
+        try {
+          unregisterPanel()
+        } catch {}
+      }
       if (typeof layerDispose === "function") {
         try {
           layerDispose()
