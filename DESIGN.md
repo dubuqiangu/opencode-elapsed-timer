@@ -29,12 +29,13 @@ opencode-elapsed-timer/                  # 开发工作区(本项目)
 ├── README.md                           # 使用说明
 ├── LICENSE / .gitignore                # MIT 许可证 / Git 忽略规则(node_modules、package-lock 不入库)
 ├── package.json                        # npm 包定义
-│     ├── exports["."]   → ./index.ts   #   服务端入口
-│     ├── exports["./tui"] → ./tui.tsx  #   TUI 插件入口(OpenCode 自动发现)
+│     ├── exports["."]   → ./src/index.ts   #   服务端入口
+│     ├── exports["./tui"] → ./src/tui.tsx  #   TUI 插件入口(OpenCode 自动发现)
 │     └── peerDependencies: @opentui/core, @opentui/solid, solid-js
 ├── tsconfig.json                        # TS 配置(jsx: preserve, jsxImportSource: @opentui/solid)
-├── index.ts                             # 服务端插件入口:空 setup 占位(216B)
-├── tui.tsx                              # ★ 核心:计时 + tok/s 全部逻辑(约 280 行)
+├── src/                                 # 源码(0.4.1 起采用 src/ 布局,官方示例同款)
+│   ├── index.ts                         # 服务端插件入口:空 setup 占位
+│   └── tui.tsx                          # ★ 核心:计时 + tok/s + 统计面板全部逻辑
 ├── docs/
 │   ├── interaction-sequence.json       # 顺序图源文件(archify sequence 规格,冻结)
 │   └── interaction-sequence.html        # 交互顺序图(archify 生成的独立 HTML)
@@ -44,7 +45,7 @@ opencode-elapsed-timer/                  # 开发工作区(本项目)
 由 `opencode plugin add github:dubuqiangu/opencode-elapsed-timer` 安装为全局包管理插件
   → 注册于 ~/.config/opencode/opencode.json 的 `plugins` 字段(完整包标识)
   → 版本即最近一次安装/更新时的 commit;`opencode plugin check` 检查更新
-  → 迭代发布闭环:改 tui.tsx → esbuild 验证 → git push
+  → 迭代发布闭环:改 src/tui.tsx → esbuild 验证 → git push
       → opencode plugin update github:dubuqiangu/opencode-elapsed-timer → 重启生效
   → 旧的 junction 本地加载已摘除,避免与包安装形成双重加载(2026-10-02)
 ```
@@ -53,8 +54,8 @@ opencode-elapsed-timer/                  # 开发工作区(本项目)
 
 | 文件 | 职责 |
 |---|---|
-| `index.ts` | 服务端插件入口。仅返回 `{ id, setup(){} }` 空实现,让 OpenCode 认出插件;真正逻辑全在 `tui.tsx` |
-| `tui.tsx` | TUI 插件:事件订阅、token 计量、速率计算、footer 渲染、生命周期清理 |
+| `src/index.ts` | 服务端插件入口。仅返回 `{ id, setup(){} }` 空实现,让 OpenCode 认出插件;真正逻辑全在 `src/tui.tsx` |
+| `src/tui.tsx` | TUI 插件:事件订阅、token 计量、速率计算、footer 渲染、统计面板、生命周期清理 |
 | `package.json` | `exports["./tui"]` 是 OpenCode 发现 TUI 插件的关键约定;`@opencode/plugin` 依赖是发布规范的必需项 |
 
 ---
@@ -299,7 +300,7 @@ context.ui.slot({
 ## 12. 验证
 
 - **语法/JSX**:每次改动后 esbuild 校验
-  `npx esbuild tui.tsx --loader:.tsx=tsx --jsx=automatic`
+  `npx esbuild src/tui.tsx --loader:.tsx=tsx --jsx=automatic`
   (完整 tsc 不可行:`@opencode/plugin/tui` 仅由 OpenCode 运行时解析,本地无类型)
 - **事件词汇取证**:官方桌面端 reducer 消费 `session.text.delta`(`anomalyco/opencode` `server-session-v2-reducer.ts`);运行时二进制含全部订阅事件名字符串
 - **实测**:重启 OpenCode(或等 watcher 热重载)后发起一轮对话,观察 footer 流式阶段出现 `⚡ tok/s`
@@ -362,3 +363,4 @@ context.ui.slot({
 | 2026-10-02 | 0.2.0 | 分发方式升级:git 仓库化发布 GitHub(`github:dubuqiangu/opencode-elapsed-timer`),原生一键安装实测通过;移除 install.ps1 与 junction 加载,补齐 LICENSE/.gitignore/发布规范 package.json;运行逻辑无变化 |
 | 2026-10-03 | 0.3.0 | 跨会话消耗统计:footer 新增今日总耗 Σ,新增 `/tokens` 命令(今日按模型明细/近7日趋势/累计汇总);直接消费服务端原生 `GET /api/experimental/session/stats`(from/to 为 epoch 毫秒串,timezone 传本地时区),无采集层、无本地存储、无 RPC;API 不可用时静默降级 |
 | 2026-10-03 | 0.4.0 | `/tokens` 升级为开关式 `session.panel` 侧边栏面板:头部当前会话实时读数(计时/tok/s/Σ,createMemo 响应式),`/tokens`/Esc 收起、`f` 全屏、面板打开期间 step 结束自动刷新;会话外降级为弹窗;footer 保持不变 |
+| 2026-10-03 | 0.4.1 | 目录布局改为 `src/`(官方示例同款):`index.ts`/`tui.tsx` 移入 `src/`,exports 指向 `./src/*`;纯结构调整,运行逻辑无变化 |
