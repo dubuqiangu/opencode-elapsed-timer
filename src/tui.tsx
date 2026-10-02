@@ -134,7 +134,37 @@ export default Plugin.define({
     // v0.6.2: live-estimate calibration factor per session (EMA of exact/est),
     // applied to streaming tok/s so it converges toward native accounting.
     const calibs = new Map<string, number>()
-    const calibOf = (sessionID: string): number => calibs.get(sessionID) ?? 1
+    // v0.6.3: calibration persists per model across sessions/restarts via
+    // durable storage, so a new session starts already-calibrated.
+    let calibStore: Record<string, number> = {}
+    let updateCalibStore: ((fn: (draft: Record<string, number>) => void) => Promise<void>) | undefined
+    try {
+      const store = (context.storage as any)?.store
+      if (typeof store === "function") {
+        const [s, u] = store("usage-meter.calib", { initial: {} })
+        calibStore = s ?? {}
+        updateCalibStore = u
+      }
+    } catch {}
+    // Last-seen model per session ("provider/model"), used to key persisted
+    // calibration; falls back to the session record.
+    const sessionModels = new Map<string, string>()
+    const modelKeyOf = (sessionID: string): string | undefined => {
+      const cached = sessionModels.get(sessionID)
+      if (cached) return cached
+      try {
+        const s = context.data?.session?.get?.(sessionID)
+        if (s?.model) return `${s.model.providerID}/${s.model.id}`
+      } catch {}
+      return undefined
+    }
+    const calibOf = (sessionID: string): number => {
+      const live = calibs.get(sessionID)
+      if (live !== undefined) return live
+      const key = modelKeyOf(sessionID)
+      const persisted = key ? calibStore[key] : undefined
+      return typeof persisted === "number" && persisted > 0 ? persisted : 1
+    }
 
     // Token-flow tracking per session, active only during a run.
     const rates = new Map<string, RateState>()
@@ -193,11 +223,20 @@ export default Plugin.define({
       if (force || out > msgTotal(m)) {
         // v0.6.2: learn the estimator's correction ratio (exact/estimated)
         // and fold it into the session calibration factor for live rates.
+        // v0.6.3: also persist it per model so new sessions start calibrated.
         const before = msgTotal(m)
         if (out > 0 && before > 20) {
-          const prev = calibs.get(st.sessionID) ?? 1
+          const prev = calibs.get(st.sessionID) ?? calibOf(st.sessionID)
           const next = Math.min(4, Math.max(0.25, prev * 0.7 + (out / before) * 0.3))
           calibs.set(st.sessionID, next)
+          const modelKey = modelKeyOf(st.sessionID)
+          if (modelKey && updateCalibStore) {
+            try {
+              void updateCalibStore((draft: Record<string, number>) => {
+                draft[modelKey] = next
+              })
+            } catch {}
+          }
         }
         m.exact = out
         m.refEst = m.est
@@ -348,6 +387,7 @@ export default Plugin.define({
     // (session.tokens survives the TUI's partial message window) + subagents.
     // Session hit rate uses the stricter read / (input + read + write) formula,
     // matching the native panel; the footer's daily hit keeps its own formula.
+    const syncedChildren = new Set<string>() // child sessions already refreshed
     const sessionUsageLines = (sessionID: string): string[] => {
       const lines: string[] = []
       try {
@@ -370,10 +410,17 @@ export default Plugin.define({
         const agg = session?.tokens
         if (agg && sumTokens(agg) > 0) {
           let turns = 0
+          let msgTokens = 0
           try {
             const messages = context.data?.session?.message?.list?.(sessionID) ?? []
-            turns = messages.filter((x: any) => x?.type === "assistant").length
+            const asst = messages.filter((x: any) => x?.type === "assistant")
+            turns = asst.length
+            for (const a of asst) msgTokens += sumTokens(a?.tokens)
           } catch {}
+          // v0.6.3: the TUI keeps only a window of recent messages on long
+          // sessions; when the authoritative aggregate exceeds the visible
+          // sum the turn count is a floor -> mark it with "+".
+          const partial = sumTokens(agg) > msgTokens + 10
           const input = agg.input ?? 0
           const output = agg.output ?? 0
           const reasoning = agg.reasoning ?? 0
@@ -383,9 +430,20 @@ export default Plugin.define({
           const hit = prompt > 0 ? Math.round((read / prompt) * 100) : undefined
           const cost = fmtUSD(session?.cost ?? 0)
           lines.push("── 本会话累计 ──")
-          lines.push(`  ${turns} 轮 · in ${fmtNum(input)}  out ${fmtNum(output)}  reasoning ${fmtNum(reasoning)}`)
+          lines.push(`  ${turns}${partial ? "+" : ""} 轮 · in ${fmtNum(input)}  out ${fmtNum(output)}  reasoning ${fmtNum(reasoning)}`)
           lines.push(`  cache R ${fmtNum(read)}  W ${fmtNum(write)} · 过流 ${fmtNum(sumTokens(agg))}${hit !== undefined ? `  命中 ${hit}%` : ""}${cost ? ` · ${cost}` : ""}`)
           const children = descendantSessions(sessionID)
+          // v0.6.3: background child sessions may not be synced by the host
+          // until viewed; refresh each one once (async, best-effort) so the
+          // block stops hiding or showing stale numbers. The next 500ms tick
+          // picks the synced values up.
+          for (const c of children) {
+            if (!c?.id || syncedChildren.has(c.id)) continue
+            syncedChildren.add(c.id)
+            try {
+              void context.data?.session?.sync?.(c.id)
+            } catch {}
+          }
           if (children.length > 0) {
             let ci = 0, co = 0, cr = 0, cc = 0, cw = 0, ccost = 0
             let anyTok = false
@@ -765,6 +823,8 @@ export default Plugin.define({
       if (info?.role !== "assistant" || typeof info?.tokens?.output !== "number") return
       const sessionID = typeof data?.sessionID === "string" ? data.sessionID : undefined
       if (!sessionID) return
+      // v0.6.3: remember the session's model to key persisted calibration.
+      if (info.model) sessionModels.set(sessionID, `${info.model.providerID}/${info.model.id}`)
       // v0.6.2: exact generation rate once the message completes —
       // (output + reasoning) / (completed - created), the same basis the
       // native per-message statistics use.
