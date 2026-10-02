@@ -371,23 +371,28 @@ export default Plugin.define({
           const children = descendantSessions(sessionID)
           if (children.length > 0) {
             let ci = 0, co = 0, cr = 0, cc = 0, cw = 0, ccost = 0
+            let anyTok = false
             for (const c of children) {
               const ct = c?.tokens
               if (!ct) continue
+              if (sumTokens(ct) > 0) anyTok = true
               ci += ct.input ?? 0; co += ct.output ?? 0; cr += ct.reasoning ?? 0
               cc += ct.cache?.read ?? 0; cw += ct.cache?.write ?? 0
               ccost += c?.cost ?? 0
             }
-            const cp = ci + cc + cw
-            const chit = cp > 0 ? Math.round((cc / cp) * 100) : undefined
-            const cCost = fmtUSD(ccost)
-            lines.push("")
-            lines.push(`── 子代理(${children.length} 个会话) ──`)
-            lines.push(`  in ${fmtNum(ci)}  out ${fmtNum(co)}  reasoning ${fmtNum(cr)}`)
-            lines.push(`  cache R ${fmtNum(cc)}  W ${fmtNum(cw)} · 过流 ${fmtNum(ci + co + cr + cc + cw)}${chit !== undefined ? `  命中 ${chit}%` : ""}${cCost ? ` · ${cCost}` : ""}`)
-            lines.push("")
-            const sCost = fmtUSD((session?.cost ?? 0) + ccost)
-            lines.push(`  会话+子代理合计:过流 ${fmtNum(sumTokens(agg) + ci + co + cr + cc + cw)}${sCost ? ` · ${sCost}` : ""}`)
+            // Hide the block while no child has reported any usage yet.
+            if (anyTok) {
+              const cp = ci + cc + cw
+              const chit = cp > 0 ? Math.round((cc / cp) * 100) : undefined
+              const cCost = fmtUSD(ccost)
+              lines.push("")
+              lines.push(`── 子代理(${children.length} 个会话) ──`)
+              lines.push(`  in ${fmtNum(ci)}  out ${fmtNum(co)}  reasoning ${fmtNum(cr)}`)
+              lines.push(`  cache R ${fmtNum(cc)}  W ${fmtNum(cw)} · 过流 ${fmtNum(ci + co + cr + cc + cw)}${chit !== undefined ? `  命中 ${chit}%` : ""}${cCost ? ` · ${cCost}` : ""}`)
+              lines.push("")
+              const sCost = fmtUSD((session?.cost ?? 0) + ccost)
+              lines.push(`  会话+子代理合计:过流 ${fmtNum(sumTokens(agg) + ci + co + cr + cc + cw)}${sCost ? ` · ${sCost}` : ""}`)
+            }
           }
           lines.push("")
         }
@@ -578,12 +583,18 @@ export default Plugin.define({
         opened = false
       }
       if (opened === false) {
-        // Outside a session: dialog fallback (no live section available).
+        // Dialog fallback (no sidebar): still pass the current sessionID so
+        // the live window/session/subagent blocks render when inside a session.
+        const route: any = context.ui?.router?.current?.()
+        const sid: string | undefined =
+          route?.type === "session"
+            ? (route.sessionID ?? route.params?.sessionID)
+            : route?.params?.sessionID
         try {
           context.ui.dialog.set({ size: "large", centered: true })
         } catch {}
         setDetail(undefined)
-        context.ui.dialog.show(() => <StatsBody />, () => {})
+        context.ui.dialog.show(() => <StatsBody sessionID={sid} />, () => {})
       }
       void ensureDetail()
     }
@@ -786,15 +797,19 @@ export default Plugin.define({
         if (parts.length === 0 && !ctx) return null
 
         const body = parts.join("   ")
-        if (!ctx) return <text fg={context.theme?.text?.muted}>{body}</text>
+        const muted = context.theme?.text?.muted
+        if (!ctx) return <text fg={muted}>{body}</text>
+        // Sibling <text> elements inside a row <box> (never nested <text> in
+        // <text>) so the warning segment can carry its own color safely.
         const ctxPart = `ctx ${ctx.pct}%${ctx.warn ? " ▲" : ""}`
         const ctxColor = ctx.warn
           ? context.theme?.text?.feedback?.warning?.base
-          : context.theme?.text?.muted
+          : muted
         return (
-          <text fg={context.theme?.text?.muted}>
-            {body ? `${body}   ` : ""}<text fg={ctxColor}>{ctxPart}</text>
-          </text>
+          <box flexDirection="row">
+            {body ? <text fg={muted}>{`${body}   `}</text> : null}
+            <text fg={ctxColor}>{ctxPart}</text>
+          </box>
         )
       },
     })

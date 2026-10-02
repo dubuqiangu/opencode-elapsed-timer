@@ -347,6 +347,11 @@ context.ui.slot({
 - **会话累计**:`context.data.session.get(sessionID)` 的 `session.tokens` / `session.cost` 权威聚合(TUI 消息窗只保留近期消息时依然全量);轮数从 message.list 统计 assistant 条数(截断时偏小,仅展示)
 - **子代理**:`context.data.session.list()` 按 `parentID` BFS 遍历委派树(上限 200 防病态树),子会话自带 `tokens`/`cost`,可递归归总
 
+**渲染细节(0.6.1 审视定稿)**:
+- footer 的 ctx 段用 `box(flexDirection: row)` 内**兄弟 `<text>`** 分色渲染,不嵌套 `<text>` 于 `<text>`(规避 OpenTUI 未验证的嵌套行为,box-row 为参考实现同款用法)
+- 降级弹窗传入当前 sessionID(取自 `router.current()`):会话内的弹窗兜底同样展示"当前窗口/本会话/子代理"三块;会话外则仅显示日/累计统计
+- 子代理块在全部子会话尚未上报任何用量(tokens 全零或缺失)时整体隐藏,防零值噪音行
+
 **口径对照**(三者并存,UI 必须标签区分,防误读):
 
 | 口径 | 范围 | cache 计入 | 位置 |
@@ -395,3 +400,4 @@ context.ui.slot({
 | 2026-10-03 | 0.4.2 | 缓存命中率:footer Σ 旁追加 `hit nn%`(今日口径),`/tokens` 面板"今日合计"与"累计"均显示命中率;口径 `cache.read ÷ (cache.read + input)`,无输入上下文时隐藏 |
 | 2026-10-03 | 0.5.0 | 更名:项目/包 `opencode-elapsed-timer` → **`opencode-usage-meter`**(功能早已超出"计时器":计时/tok/s/今日与累计 token/命中率/统计面板,名实对齐);插件 id `elapsed-timer` → `usage-meter`,面板名 `usage-meter.stats`,斜杠命令改为 **`/usage-full`**(移除 `/tokens` 及全部别名,避免与其他插件冲突);GitHub 仓库同步改名(旧地址自动重定向);功能集无变化 |
 | 2026-10-03 | 0.6.0 | 当前会话窗口微观:footer 追加 `ctx nn%`(≥80% 显示 `▲` 与警示色,即 80% 压缩预警);`/usage-full` 面板新增"当前窗口"(最后请求 in/out/reasoning/cache 分项 + 占用%)、"本会话累计"(权威 `session.tokens` 聚合 + 轮数 + 会话级命中率 + cost)、"子代理"(`parentID` 委派树 BFS 归总 + 会话子代理合计)三块;会话级命中率采用更严口径 `read ÷ (input+read+write)`;全部只读已同步 TUI 状态,零服务端调用;设计见 §12B |
+| 2026-10-03 | 0.6.1 | 代码审视修复:footer ctx 段改用 box(row) 兄弟 `<text>` 分色(不嵌套 text 于 text,规避渲染兼容风险);降级弹窗传入当前 sessionID,会话内弹窗兜底同样展示当前窗口/本会话/子代理三块;子代理块在全部子会话零用量时隐藏(防零值噪音);README 工作原理补 0.6 数据源说明;§12B 增"渲染细节"节 |

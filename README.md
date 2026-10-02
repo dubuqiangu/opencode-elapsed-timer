@@ -5,7 +5,7 @@ OpenCode V2 TUI 插件:在输入框下方的状态行(`prompt.footer.status`)实
 - **运行中**:`⏱ waited 12.3s   ⚡ 42 tok/s   Σ 1.5M   hit 93%   ctx 42%` — 计时每 500ms 跳动;速率基于 10s 采样滑动窗口,流式停顿超过 4s(工具调用间隙)自动隐藏;Σ 为今日 token 总耗,hit 为今日缓存命中率(`cache.read ÷ (cache.read + input)`),ctx 为当前上下文窗口占用(最后一次请求 vs 模型窗口上限,与原生侧栏面板同源)
 - **空闲**:`✓ last 8.4s   ⚡ 38 tok/s avg   Σ 1.5M   hit 93%   ctx 42%`
 - **80% 压缩预警**:窗口占用 ≥80% 时,ctx 段变为警示色并追加 `▲`(`ctx 83% ▲`),提示即将触发自动压缩
-- **`/usage-full` 命令**(同时进命令面板):**开关式侧边栏统计面板**(`session.panel` 贡献)——面板头部为当前会话实时读数(计时/tok/s/今日 Σ,随 500ms 时钟跳动),以及**当前窗口**(最后一次请求的 in/out/reasoning/cache 分项 + 占用% 与压缩预警)、**本会话累计**(轮数/token 过流/会话级命中率 `cache.read ÷ (input+read+write)`/费用)、**子代理**(委派子会话树递归归总 + 会话与子代理合计);下方为今日按模型明细、今日合计(含缓存命中率)、近 7 日 steps 趋势、累计总量(含命中率)、累计 Top 模型;再按一次 `/usage-full` 或 `Esc` 收起,面板聚焦时按 `f` 全屏展开(窄终端下宿主自动全屏);会话外(无侧边栏)自动降级为普通弹窗
+- **`/usage-full` 命令**(同时进命令面板):**开关式侧边栏统计面板**(`session.panel` 贡献)——面板头部为当前会话实时读数(计时/tok/s/今日 Σ,随 500ms 时钟跳动),以及**当前窗口**(最后一次请求的 in/out/reasoning/cache 分项 + 占用% 与压缩预警)、**本会话累计**(轮数/token 过流/会话级命中率 `cache.read ÷ (input+read+write)`/费用)、**子代理**(委派子会话树递归归总 + 会话与子代理合计);下方为今日按模型明细、今日合计(含缓存命中率)、近 7 日 steps 趋势、累计总量(含命中率)、累计 Top 模型;再按一次 `/usage-full` 或 `Esc` 收起,面板聚焦时按 `f` 全屏展开(窄终端下宿主自动全屏);无侧边栏时自动降级为普通弹窗——会话内的降级弹窗同样展示当前窗口/本会话/子代理三块
 
 Token 消耗统计基于服务端原生聚合 API(`/api/experimental/session/stats`),跨全部会话(含无 TUI 的 headless 会话与子代理),插件零采集、零存储,服务重启不丢数据。
 
@@ -68,6 +68,7 @@ opencode plugin remove github:dubuqiangu/opencode-usage-meter
 - **tok/s 实时速率**:订阅 `session.text.delta` / `session.reasoning.delta` / `session.tool.input.delta`,按字符启发式估算 token(CJK ≈ 1 token/字,其余 ≈ 4 字符/token),样本进入 10s 滑动窗口计算 Δtoken/Δt
 - **精确校准**:`session.step.ended` / `failed` 携带精确 `tokens.output`,按 `msgTotal = exact + max(0, est − refEst)` 增量补偿,不丢不重
 - **会话隔离**:全部状态按 `sessionID` 分桶,子代理会话互不干扰;旧 `message.*` 事件族保留兜底并带防双计锁
+- **当前会话窗口/累计(0.6)**:只读已同步的 TUI 状态,零服务端调用——`session.message.list` 取最后一条 assistant 消息算窗口占用(÷ `location.model.list` 匹配模型的 `limit.context`,与原生侧栏面板同源同数);`session.get` 的 `session.tokens`/`cost` 权威聚合出本会话累计(免疫长会话消息窗截断);`session.list` 按 `parentID` BFS 归总子代理委派树(上限 200)
 - 卸载时清理 interval、slot 与全部订阅
 
 详细设计文档:[DESIGN.md](DESIGN.md);交互顺序图:[docs/interaction-sequence.html](docs/interaction-sequence.html)
