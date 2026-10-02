@@ -256,6 +256,145 @@ export default Plugin.define({
     const [detail, setDetail] = createSignal<any>(undefined)
     const PANEL_NAME = "usage-meter.stats"
 
+    // --- Current-session context window + cumulative usage (v0.6.0) ---
+    // Window occupancy mirrors the native sidebar Context panel: the last
+    // assistant message with output tokens, summed as
+    // input + output + reasoning + cache.read + cache.write, over the model's
+    // context limit. Everything reads already-synced TUI state — no server call.
+    const EMPTY_TOKENS: any = { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }
+    const CTX_WARN_PCT = 80
+
+    const sumTokens = (t: any): number =>
+      (t?.input ?? 0) + (t?.output ?? 0) + (t?.reasoning ?? 0)
+      + (t?.cache?.read ?? 0) + (t?.cache?.write ?? 0)
+
+    const ctxModelLimit = (message: any): number | undefined => {
+      try {
+        const models = context.data?.location?.model?.list?.(context.location) ?? []
+        const m = models.find((c: any) =>
+          c?.providerID === message?.model?.providerID &&
+          (c?.modelID === message?.model?.id || c?.id === message?.model?.id))
+        const limit = m?.limit?.context
+        return typeof limit === "number" && limit > 0 ? limit : undefined
+      } catch {
+        return undefined
+      }
+    }
+
+    // Last assistant message that reported output tokens (the window snapshot).
+    const lastAssistant = (sessionID: string): any | undefined => {
+      try {
+        const messages = context.data?.session?.message?.list?.(sessionID) ?? []
+        for (let i = messages.length - 1; i >= 0; i--) {
+          const m = messages[i]
+          if (m?.type === "assistant" && (m?.tokens?.output ?? 0) > 0) return m
+        }
+      } catch {}
+      return undefined
+    }
+
+    // Window occupancy for the footer: percent + warning flag (>= 80%).
+    const ctxPercent = (sessionID: string): { pct: number; warn: boolean } | undefined => {
+      const m = lastAssistant(sessionID)
+      if (!m) return undefined
+      const limit = ctxModelLimit(m)
+      if (!limit) return undefined
+      const tokens = sumTokens(m.tokens)
+      const pct = Math.round((tokens / limit) * 100)
+      return { pct, warn: pct >= CTX_WARN_PCT }
+    }
+
+    // Delegation tree under this session (task subagents run in child
+    // sessions that can have their own children). Best-effort, capped at 200.
+    const descendantSessions = (rootID: string): any[] => {
+      try {
+        const all = context.data?.session?.list?.() ?? []
+        const found: any[] = []
+        const seen = new Set<string>([rootID])
+        const queue: string[] = [rootID]
+        while (queue.length > 0 && found.length < 200) {
+          const parentID = queue.shift()!
+          for (const s of all) {
+            if (s?.parentID !== parentID || seen.has(s.id)) continue
+            seen.add(s.id)
+            found.push(s)
+            queue.push(s.id)
+          }
+        }
+        return found
+      } catch {
+        return []
+      }
+    }
+
+    // Panel block: current window snapshot + authoritative session cumulative
+    // (session.tokens survives the TUI's partial message window) + subagents.
+    // Session hit rate uses the stricter read / (input + read + write) formula,
+    // matching the native panel; the footer's daily hit keeps its own formula.
+    const sessionUsageLines = (sessionID: string): string[] => {
+      const lines: string[] = []
+      try {
+        const m = lastAssistant(sessionID)
+        if (m) {
+          const t = m.tokens ?? EMPTY_TOKENS
+          const limit = ctxModelLimit(m)
+          lines.push("── 当前窗口(最后一次请求) ──")
+          lines.push(`  in ${fmtNum(t.input ?? 0)}  out ${fmtNum(t.output ?? 0)}  reasoning ${fmtNum(t.reasoning ?? 0)}`)
+          lines.push(`  cache R ${fmtNum(t.cache?.read ?? 0)}  W ${fmtNum(t.cache?.write ?? 0)}`)
+          if (limit) {
+            const pct = Math.round((sumTokens(t) / limit) * 100)
+            lines.push(`  占用 ${fmtNum(sumTokens(t))} / ${fmtNum(limit)} (${pct}%)${pct >= CTX_WARN_PCT ? "  ▲ 接近压缩阈值" : ""}`)
+          } else {
+            lines.push(`  占用 ${fmtNum(sumTokens(t))}(模型窗口上限未知)`)
+          }
+          lines.push("")
+        }
+        const session = context.data?.session?.get?.(sessionID)
+        const agg = session?.tokens
+        if (agg && sumTokens(agg) > 0) {
+          let turns = 0
+          try {
+            const messages = context.data?.session?.message?.list?.(sessionID) ?? []
+            turns = messages.filter((x: any) => x?.type === "assistant").length
+          } catch {}
+          const input = agg.input ?? 0
+          const output = agg.output ?? 0
+          const reasoning = agg.reasoning ?? 0
+          const read = agg.cache?.read ?? 0
+          const write = agg.cache?.write ?? 0
+          const prompt = input + read + write
+          const hit = prompt > 0 ? Math.round((read / prompt) * 100) : undefined
+          const cost = fmtUSD(session?.cost ?? 0)
+          lines.push("── 本会话累计 ──")
+          lines.push(`  ${turns} 轮 · in ${fmtNum(input)}  out ${fmtNum(output)}  reasoning ${fmtNum(reasoning)}`)
+          lines.push(`  cache R ${fmtNum(read)}  W ${fmtNum(write)} · 过流 ${fmtNum(sumTokens(agg))}${hit !== undefined ? `  命中 ${hit}%` : ""}${cost ? ` · ${cost}` : ""}`)
+          const children = descendantSessions(sessionID)
+          if (children.length > 0) {
+            let ci = 0, co = 0, cr = 0, cc = 0, cw = 0, ccost = 0
+            for (const c of children) {
+              const ct = c?.tokens
+              if (!ct) continue
+              ci += ct.input ?? 0; co += ct.output ?? 0; cr += ct.reasoning ?? 0
+              cc += ct.cache?.read ?? 0; cw += ct.cache?.write ?? 0
+              ccost += c?.cost ?? 0
+            }
+            const cp = ci + cc + cw
+            const chit = cp > 0 ? Math.round((cc / cp) * 100) : undefined
+            const cCost = fmtUSD(ccost)
+            lines.push("")
+            lines.push(`── 子代理(${children.length} 个会话) ──`)
+            lines.push(`  in ${fmtNum(ci)}  out ${fmtNum(co)}  reasoning ${fmtNum(cr)}`)
+            lines.push(`  cache R ${fmtNum(cc)}  W ${fmtNum(cw)} · 过流 ${fmtNum(ci + co + cr + cc + cw)}${chit !== undefined ? `  命中 ${chit}%` : ""}${cCost ? ` · ${cCost}` : ""}`)
+            lines.push("")
+            const sCost = fmtUSD((session?.cost ?? 0) + ccost)
+            lines.push(`  会话+子代理合计:过流 ${fmtNum(sumTokens(agg) + ci + co + cr + cc + cw)}${sCost ? ` · ${sCost}` : ""}`)
+          }
+          lines.push("")
+        }
+      } catch {}
+      return lines
+    }
+
     // Live per-session readout (timer / tok/s / today Σ) for the panel header.
     const sessionLines = (sessionID: string | undefined): string[] => {
       if (!sessionID) return []
@@ -286,6 +425,7 @@ export default Plugin.define({
         const total = (tk?.input ?? 0) + (tk?.output ?? 0) + (tk?.reasoning ?? 0)
         if (total > 0) lines.push(`  Σ 今日 ${fmtNum(total)}`)
       }
+      lines.push(...sessionUsageLines(sessionID))
       lines.push("")
       return lines
     }
@@ -640,9 +780,22 @@ export default Plugin.define({
             if (denom > 0) parts.push(`hit ${Math.round((read / denom) * 100)}%`)
           }
         }
-        if (parts.length === 0) return null
+        // Current context-window occupancy (last request vs model limit),
+        // mirroring the native sidebar panel; warn marker from 80%.
+        const ctx = ctxPercent(sessionID)
+        if (parts.length === 0 && !ctx) return null
 
-        return <text fg={context.theme?.text?.muted}>{parts.join("   ")}</text>
+        const body = parts.join("   ")
+        if (!ctx) return <text fg={context.theme?.text?.muted}>{body}</text>
+        const ctxPart = `ctx ${ctx.pct}%${ctx.warn ? " ▲" : ""}`
+        const ctxColor = ctx.warn
+          ? context.theme?.text?.feedback?.warning?.base
+          : context.theme?.text?.muted
+        return (
+          <text fg={context.theme?.text?.muted}>
+            {body ? `${body}   ` : ""}<text fg={ctxColor}>{ctxPart}</text>
+          </text>
+        )
       },
     })
 

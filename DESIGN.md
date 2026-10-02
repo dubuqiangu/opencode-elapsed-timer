@@ -326,8 +326,8 @@ context.ui.slot({
 
 ### 12A.2 展示与刷新
 
-- **footer**:追加 `Σ <今日总量>`,与 tok/s 同行同级。口径 = 今日 `input+output+reasoning`(cache 读写成本结构不同,不计入 Σ,弹窗中单列)。今日为 0 或 API 不可用时隐藏。0.4.2 起 Σ 旁追加 `hit <nn>%` 今日缓存命中率(口径 `cache.read ÷ (cache.read + input)`,分母 0 隐藏)。
-- **`/usage-full` 命令**(0.5.0 前为 `/tokens`,别名 `/tok`、`/usage` 已移除;同时进命令面板):今日按模型明细(≤12 行,按输出排序)+ 今日合计 + 近 7 日 steps 趋势(取自全量查询的 `activity` 尾部 7 条)+ 累计总量 + 累计 Top 5 模型。`cost` 为 0(模型未配价)时整列隐藏。0.4.0 起升级为**开关式 `session.panel` 侧边面板**(头部含当前会话实时计时/tok/s/今日 Σ,`createMemo` 响应式刷新;`/usage-full` 或 `Esc` 收起,`f` 全屏,面板打开期间每次 step 结束自动刷新今日+全量明细;会话外降级为普通弹窗)。
+- **footer**:追加 `Σ <今日总量>`,与 tok/s 同行同级。口径 = 今日 `input+output+reasoning`(cache 读写成本结构不同,不计入 Σ,弹窗中单列)。今日为 0 或 API 不可用时隐藏。0.4.2 起 Σ 旁追加 `hit <nn>%` 今日缓存命中率(口径 `cache.read ÷ (cache.read + input)`,分母 0 隐藏)。0.6.0 起再追加 `ctx <nn>%` 当前窗口占用(占用 ≥80% 时为 `ctx <nn>% ▲` 并用警示色,见 §12B)。
+- **`/usage-full` 命令**(0.5.0 前为 `/tokens`,别名 `/tok`、`/usage` 已移除;同时进命令面板):今日按模型明细(≤12 行,按输出排序)+ 今日合计 + 近 7 日 steps 趋势(取自全量查询的 `activity` 尾部 7 条)+ 累计总量 + 累计 Top 5 模型。`cost` 为 0(模型未配价)时整列隐藏。0.4.0 起升级为**开关式 `session.panel` 侧边面板**(头部含当前会话实时计时/tok/s/今日 Σ,0.6.0 起头部另有"当前窗口/本会话累计/子代理"三块,见 §12B,`createMemo` 响应式刷新;`/usage-full` 或 `Esc` 收起,`f` 全屏,面板打开期间每次 step 结束自动刷新今日+全量明细;会话外降级为普通弹窗)。
 - **刷新策略**:插件加载时取一次;`session.step.ended/failed` 后 1.5s 防抖刷新;弹窗打开时双查询(今日+全量)并回写 footer 信号;500ms tick 检测跨零点自动重取并复位失败标记。
 - **降级**:client 方法缺失或请求失败 → Σ 静默隐藏、弹窗显示错误文案,`console.error` 记录一次;不阻塞计时/tok/s 主功能。
 
@@ -336,6 +336,34 @@ context.ui.slot({
 - 端点带 `experimental`,OpenCode 升级可能变动 → 全部调用收敛在 `statsCall()` 单函数,便于替换。
 - TUI 内置 client 的方法路径 `experimental.session.stats` 依赖宿主版本 → 防御式访问,运行时验证。
 - 全量查询的 `models[]` 可能上百行(探活/失败请求 tokens 为 0)→ 弹窗按输出过滤排序,只显示 Top 5。
+
+### 12B. 当前会话窗口与会话累计(0.6.0)
+
+**动机**:原生有侧栏 Context 面板但无常驻占用%/预警;第三方 opencode-context-usage 已验证全部数据通道。本节功能只读已同步的 TUI 状态,零服务端调用、零采集。
+
+**数据通道**(均经参考实现验证):
+- **窗口快照**:`context.data.session.message.list(sessionID)` 中最后一条 `tokens.output > 0` 的 assistant 消息
+- **窗口占用** = `input + output + reasoning + cache.read + cache.write`(与原生侧栏 Context 面板同源同数)÷ 模型 `limit.context`(来自 `context.data.location.model.list(location)`,按 `providerID` + `model.id` 匹配)
+- **会话累计**:`context.data.session.get(sessionID)` 的 `session.tokens` / `session.cost` 权威聚合(TUI 消息窗只保留近期消息时依然全量);轮数从 message.list 统计 assistant 条数(截断时偏小,仅展示)
+- **子代理**:`context.data.session.list()` 按 `parentID` BFS 遍历委派树(上限 200 防病态树),子会话自带 `tokens`/`cost`,可递归归总
+
+**口径对照**(三者并存,UI 必须标签区分,防误读):
+
+| 口径 | 范围 | cache 计入 | 位置 |
+|---|---|---|---|
+| 今日 Σ | 当日全部会话 | 不计入 | footer / 面板头部 |
+| 会话累计 | 本会话(压缩后不重置) | 计入 | 面板"本会话累计" |
+| 窗口占用 | 最后一次请求 | 计入(缓存命中仍占窗口) | footer / 面板"当前窗口" |
+
+**命中率口径**:会话级用 `cache.read ÷ (input + cache.read + cache.write)`(与原生面板/参考实现一致,分母含 cache write,更严格);footer 日级维持 `read ÷ (read + input)`(日级 stats API 口径)。两口径并存属有意为之。
+
+**80% 压缩预警**:窗口占用 ≥80% 时,footer ctx 段追加 `▲` 并用 `theme.text.feedback.warning.base` 警示色;面板占用行追加"▲ 接近压缩阈值"。阈值为常量 `CTX_WARN_PCT`,未来可配置化。
+
+**已知限制**:
+- 压缩后窗口占用重置、会话累计继续增长——属正常语义,非 bug
+- 长会话 TUI 消息窗截断:窗口快照与轮数可能偏低,会话累计不受影响(权威聚合)
+- 模型未配价时 cost 为 0,费用段隐藏(沿用 0.3.0 约定)
+- tok/s 仍为流式期启发式估算(精确值仅在 step 结束产生,±20-30%,不可修)
 
 ---
 
@@ -366,3 +394,4 @@ context.ui.slot({
 | 2026-10-03 | 0.4.1 | 目录布局改为 `src/`(官方示例同款):`index.ts`/`tui.tsx` 移入 `src/`,exports 指向 `./src/*`;纯结构调整,运行逻辑无变化 |
 | 2026-10-03 | 0.4.2 | 缓存命中率:footer Σ 旁追加 `hit nn%`(今日口径),`/tokens` 面板"今日合计"与"累计"均显示命中率;口径 `cache.read ÷ (cache.read + input)`,无输入上下文时隐藏 |
 | 2026-10-03 | 0.5.0 | 更名:项目/包 `opencode-elapsed-timer` → **`opencode-usage-meter`**(功能早已超出"计时器":计时/tok/s/今日与累计 token/命中率/统计面板,名实对齐);插件 id `elapsed-timer` → `usage-meter`,面板名 `usage-meter.stats`,斜杠命令改为 **`/usage-full`**(移除 `/tokens` 及全部别名,避免与其他插件冲突);GitHub 仓库同步改名(旧地址自动重定向);功能集无变化 |
+| 2026-10-03 | 0.6.0 | 当前会话窗口微观:footer 追加 `ctx nn%`(≥80% 显示 `▲` 与警示色,即 80% 压缩预警);`/usage-full` 面板新增"当前窗口"(最后请求 in/out/reasoning/cache 分项 + 占用%)、"本会话累计"(权威 `session.tokens` 聚合 + 轮数 + 会话级命中率 + cost)、"子代理"(`parentID` 委派树 BFS 归总 + 会话子代理合计)三块;会话级命中率采用更严口径 `read ÷ (input+read+write)`;全部只读已同步 TUI 状态,零服务端调用;设计见 §12B |
