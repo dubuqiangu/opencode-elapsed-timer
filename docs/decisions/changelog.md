@@ -26,3 +26,4 @@
 | 2026-10-03 | — | 文档体系重构:DESIGN.md 单文件 → `docs/` 总览 + guides/features/architecture/decisions 分类分文件,根 README 瘦身为入口页;DESIGN.md 保留为指针。纯文档变更,无代码改动 |
 | 2026-10-03 | 0.7.4 | 单元测试套件:新增 `test/`(与 src 同级,38 用例)——format/rate-model/settings/calibration/session-metrics 五个模块的纯函数与 factory 层,含轮次生命周期、防双计锁、EMA 钳位收敛、旧存储归一等关键行为;零 devDependency(Node ≥22 原生 type stripping + node:test + 15 行解析钩子),`npm test` 一键执行;运行时行为零变化 |
 | 2026-10-03 | 0.7.5 | 冷启动回填:重开终端/接手旧会话时,上轮 `🏁` 时长与 `⚡` 精确速率立即可见——footer/右栏渲染时对无内存记录的会话,从已同步权威消息记录回放上一轮(末条 user 消息 → 末条已完成 assistant);三重防护:已有实时记录不覆盖、运行中不写、末条消息未完成(异端运行中)不显示旧值;数据源与 finishTurn 精确结算同源,零新增采集 |
+| 2026-10-03 | — | 一键安装自验证:新增 `scripts/verify-install.ps1`(update → plugin list commit 一致 → 落盘版本 → src/test/docs 文件树镜像 → opencode.json 注册,全过输出 VERIFY OK)+ 项目级 AGENTS.md 固化发布闭环(自验证为固定最后一步)。纯脚本/文档变更,无运行时改动 |
