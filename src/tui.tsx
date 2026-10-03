@@ -869,25 +869,23 @@ export default Plugin.define({
       const last = lastDurations.get(sessionID)
       const currentTime = now()
       const metricLines: string[] = []
+      // v0.7.1: narrow column — split time and rate onto separate lines,
+      // English-only labels, and unify the scope suffix in parentheses.
       if (running && started !== undefined) {
+        metricLines.push(`⏱ ${format(currentTime - started)}`)
         const rate = rates.get(sessionID)
         const liveTokPerSec = rate ? liveRate(rate, currentTime) : undefined
-        metricLines.push(
-          `⏱ ${format(currentTime - started)}` +
-            `${liveTokPerSec !== undefined ? `   ⚡ ${Math.round(liveTokPerSec * calibOf(sessionID))} tok/s` : ""}`,
-        )
+        if (liveTokPerSec !== undefined) {
+          metricLines.push(`⚡ ${Math.round(liveTokPerSec * calibOf(sessionID))} tok/s`)
+        }
       } else if (running) {
         metricLines.push("⏱ running")
       } else if (last !== undefined) {
+        metricLines.push(`✓ last ${format(last)}`)
         const exact = lastExactRates.get(sessionID)
         const avgRate = lastAvgRates.get(sessionID)
-        const rateText =
-          exact !== undefined
-            ? `${exact} tok/s`
-            : avgRate !== undefined
-              ? `${avgRate} tok/s avg`
-              : undefined
-        metricLines.push(`✓ last ${format(last)}${rateText ? `   ⚡ ${rateText}` : ""}`)
+        if (exact !== undefined) metricLines.push(`⚡ ${exact} tok/s`)
+        else if (avgRate !== undefined) metricLines.push(`⚡ ${avgRate} tok/s avg`)
       }
       const stats = todayStats()
       const hitScope = hitScopeEnabled()
@@ -895,7 +893,7 @@ export default Plugin.define({
         const todayTokens = stats?.tokens
         const total =
           (todayTokens?.input ?? 0) + (todayTokens?.output ?? 0) + (todayTokens?.reasoning ?? 0)
-        if (total > 0) metricLines.push(`Σ 今日 ${fmtNum(total)}`)
+        if (total > 0) metricLines.push(`📊 ${fmtNum(total)} (today)`)
       }
       if (hitScope === "session") {
         try {
@@ -904,19 +902,19 @@ export default Plugin.define({
           const denominator =
             (sessionTokens?.input ?? 0) + cacheRead + (sessionTokens?.cache?.write ?? 0)
           if (denominator > 0)
-            metricLines.push(`hit·s ${((cacheRead / denominator) * 100).toFixed(1)}%(本会话)`)
+            metricLines.push(`🎯 ${((cacheRead / denominator) * 100).toFixed(1)}% (session)`)
         } catch {}
       } else if (stats) {
         const cacheRead = stats?.tokens?.cache?.read ?? 0
         const denominator = cacheRead + (stats?.tokens?.input ?? 0)
         if (denominator > 0)
-          metricLines.push(`hit ${((cacheRead / denominator) * 100).toFixed(1)}%(今日)`)
+          metricLines.push(`🎯 ${((cacheRead / denominator) * 100).toFixed(1)}% (today)`)
       }
       if (metricLines.length === 0) return null
       const muted = context.theme?.text?.muted
       return (
         <box flexDirection="column">
-          <text fg={(context.theme as any)?.text?.base}>用量</text>
+          <text fg={(context.theme as any)?.text?.base}>Stats</text>
           <text fg={muted}>{metricLines.join("\n")}</text>
         </box>
       )
