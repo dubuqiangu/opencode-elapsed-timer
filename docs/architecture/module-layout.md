@@ -45,6 +45,7 @@ test/
   rate-model.test.ts      消息/轮次记账、滑窗采样、liveRate 门槛、事件信封访问器
   settings.test.ts        设置默认值、旧版本存储归一、开关持久化
   calibration.test.ts     校准默认值、EMA 学习与 0.25-4 钳位、按模型持久化
+  stats-source.test.ts    日用统计取数:number 入参契约、信封解包、防抖与 30s 重试定时器独立(0.7.6)
   session-metrics.test.ts 轮次生命周期:启动/delta/精确采纳/防双计锁/空闲精确速率结算/冷启动回填(含三重防护)
 ```
 

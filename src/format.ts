@@ -24,7 +24,7 @@ export function estimateTokens(text: string): number {
   return Math.max(1, Math.round(cjk + other / 4))
 }
 
-// Compact token counts: 1_234 -> "1.2k", 12_345_678 -> "12.3M".
+// Compact token counts: 1_234 -> "1.2k", 12_000_000 -> "12M" (>=10 rounds to whole).
 export function fmtNum(n: number): string {
   if (!Number.isFinite(n) || n <= 0) return "0"
   if (n >= 1_000_000) {

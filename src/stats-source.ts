@@ -24,7 +24,11 @@ export function createStatsSource(context: any): StatsSourceApi {
   let statsDay = new Date().toDateString()
   let statsFailed = false // reserved: hard-fail gate (reset at day rollover); missing client method now retries on a timer
   let statsBusy = false
+  // v0.7.6: the step-refresh debounce and the missing-client retry are two
+  // independent lifecycles — sharing one timer slot made the 30s retry wait
+  // silently swallow every debounced refresh in between.
   let statsTimer: ReturnType<typeof setTimeout> | undefined
+  let statsRetryTimer: ReturnType<typeof setTimeout> | undefined
 
   let timezone: string | undefined
   try {
@@ -60,13 +64,15 @@ export function createStatsSource(context: any): StatsSourceApi {
     if (!call) {
       // v0.6.4: the client may simply not be ready when setup runs; retry on
       // a timer instead of one-shot failing until the next day / restart.
+      // v0.7.6: dedicated retry timer — must not block the step-refresh
+      // debounce (they previously shared one slot).
       if (!statsMethodMissingLogged) {
         statsMethodMissingLogged = true
         console.error("[usage-meter] session stats client method unavailable (will retry)")
       }
-      if (statsTimer === undefined) {
-        statsTimer = setTimeout(() => {
-          statsTimer = undefined
+      if (statsRetryTimer === undefined) {
+        statsRetryTimer = setTimeout(() => {
+          statsRetryTimer = undefined
           void fetchToday()
         }, 30_000)
       }
@@ -123,6 +129,7 @@ export function createStatsSource(context: any): StatsSourceApi {
 
   const release = (): void => {
     if (statsTimer !== undefined) clearTimeout(statsTimer)
+    if (statsRetryTimer !== undefined) clearTimeout(statsRetryTimer)
   }
 
   return {
