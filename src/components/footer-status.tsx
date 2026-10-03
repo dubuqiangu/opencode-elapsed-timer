@@ -23,7 +23,8 @@ export function createFooterStatus(deps: {
   now: () => number
 }): FooterStatusApi {
   const { context, now } = deps
-  const { starts, lastDurations, lastAvgRates, lastExactRates, rates } = deps.sessionMetrics
+  const { starts, lastDurations, lastAvgRates, lastExactRates, rates, backfillLastTurn } =
+    deps.sessionMetrics
   const { hitScopeEnabled, footerHitEnabled, footerSigmaEnabled } = deps.settings
   const { todayStats } = deps.statsSource
   const { calibOf } = deps.calibration
@@ -33,6 +34,10 @@ export function createFooterStatus(deps: {
     const sessionID: string | undefined = slotProps?.sessionID
       ?? context.ui?.router?.current?.()?.params?.sessionID
     if (!sessionID) return null
+
+    // v0.7.5: sessions opened after a TUI restart have no in-memory turn
+    // history yet — replay the last turn from synced records once (guarded).
+    backfillLastTurn(sessionID)
 
     const running = context.data?.session?.status?.(sessionID) === "running"
     const started = starts.get(sessionID)

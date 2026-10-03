@@ -26,7 +26,8 @@ export function createSidebarMetrics(deps: {
   now: () => number
 }): SidebarMetricsApi {
   const { context, now } = deps
-  const { starts, lastDurations, lastAvgRates, lastExactRates, rates } = deps.sessionMetrics
+  const { starts, lastDurations, lastAvgRates, lastExactRates, rates, backfillLastTurn } =
+    deps.sessionMetrics
   const { sidebarMetricsEnabled, hitScopeEnabled } = deps.settings
   const { todayStats } = deps.statsSource
   const { calibOf } = deps.calibration
@@ -34,6 +35,9 @@ export function createSidebarMetrics(deps: {
   const SidebarMetrics = (props: { sessionID: string }) => {
     if (!sidebarMetricsEnabled()) return null
     const sessionID = props.sessionID
+    // v0.7.5: sessions opened after a TUI restart have no in-memory turn
+    // history yet — replay the last turn from synced records once (guarded).
+    backfillLastTurn(sessionID)
     const running = context.data?.session?.status?.(sessionID) === "running"
     const started = starts.get(sessionID)
     const last = lastDurations.get(sessionID)

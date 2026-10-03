@@ -60,6 +60,16 @@ stateDiagram-v2
 
 状态全部为**进程内存态**:重启 OpenCode 后上轮统计清零,新一轮自然重建。(校准系数与设置除外——经 storage 持久化。)
 
+## 冷启动回填(0.7.5)
+
+内存态清零带来一个体验缺口:重开终端后接手的旧会话,在完成下一轮之前 footer/右栏不显示 `🏁/⚡`。0.7.5 起补上——footer 与右栏渲染时,对本实例内**没有**轮次记录的会话惰性触发 `backfillLastTurn`:
+
+- 数据源:已同步的权威消息记录(`session.message.list`,与 finishTurn 精确结算同源),零新增采集/请求
+- 回放口径:末条 user 消息 `created` → 末条已完成 assistant `completed` 即上轮时长;assistant 消息 `Σ(output+reasoning) ÷ Σ(created→completed)` 即精确速率(同 0.6.5 口径)
+- 三重防护:已有实时记录不覆盖(实时值优先)、`starts` 存在(运行中)不写、末条 user 消息之后无已完成回复(会话在别处运行中)不显示旧值
+- 触发即忘:每次渲染先查守卫(三次 Map/Set 查询),未同步完成前消息列表为空时下一 tick 自动重试
+
+
 ## 交互时序图
 
 ```mermaid

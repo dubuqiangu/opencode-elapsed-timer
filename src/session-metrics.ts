@@ -15,6 +15,7 @@ export type SessionMetricsApi = {
   onLegacyDelta: (event: any) => void
   onMessageUpdated: (event: any) => void
   finishTurn: (event: any) => void
+  backfillLastTurn: (sessionID: string) => void
   starts: Map<string, number>
   lastDurations: Map<string, number>
   lastAvgRates: Map<string, number>
@@ -111,6 +112,56 @@ export function createSessionMetrics(deps: {
         lastExactRates.set(sessionID, Math.round(toks / (genMs / 1000)))
       }
     } catch {}
+  }
+
+  // v0.7.5: cold-start backfill. lastDurations/lastExactRates are in-memory
+  // Maps, so a session that already finished turns under a previous TUI
+  // instance (or before the plugin loaded) shows no idle readout until its
+  // next completed turn. When a surface first renders such a session, replay
+  // the last turn from the synced authoritative message records — the same
+  // data source finishTurn's exact-rate recompute uses, no extra fetching.
+  // Guards: never overwrite live-tracked values, never touch an active run,
+  // and skip when the last user message has no completed reply after it
+  // (that session is mid-run elsewhere — showing stale numbers would lie).
+  const backfillPending = new Set<string>()
+  const backfillLastTurn = (sessionID: string): void => {
+    if (
+      !sessionID ||
+      lastDurations.has(sessionID) ||
+      starts.has(sessionID) ||
+      backfillPending.has(sessionID)
+    ) {
+      return
+    }
+    backfillPending.add(sessionID)
+    try {
+      const messages = context.data?.session?.message?.list?.(sessionID) ?? []
+      let lastUserCreated: number | undefined
+      let lastAssistantCompleted: number | undefined
+      for (const message of messages) {
+        if (message?.type === "user") {
+          const created = tsOf(message?.time?.created)
+          if (created !== undefined && (lastUserCreated === undefined || created > lastUserCreated)) {
+            lastUserCreated = created
+          }
+        } else if (message?.type === "assistant") {
+          const completed = tsOf(message?.time?.completed)
+          if (
+            completed !== undefined &&
+            (lastAssistantCompleted === undefined || completed > lastAssistantCompleted)
+          ) {
+            lastAssistantCompleted = completed
+          }
+        }
+      }
+      if (lastUserCreated === undefined || lastAssistantCompleted === undefined) return
+      if (lastAssistantCompleted <= lastUserCreated) return // last message still running elsewhere
+      lastDurations.set(sessionID, lastAssistantCompleted - lastUserCreated)
+      exactRateFromRecords(sessionID, lastUserCreated)
+    } catch {
+    } finally {
+      backfillPending.delete(sessionID)
+    }
   }
 
   const onExecutionStarted = (event: any): void => {
@@ -233,6 +284,7 @@ export function createSessionMetrics(deps: {
     onLegacyDelta,
     onMessageUpdated,
     finishTurn,
+    backfillLastTurn,
     starts,
     lastDurations,
     lastAvgRates,

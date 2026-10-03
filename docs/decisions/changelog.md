@@ -25,3 +25,4 @@
 | 2026-10-03 | 0.7.3 | 状态标签全图标化:`⏱ waited` → `⏱`、运行中无起点态 → `⏳`(footer/右栏/面板三处);真机反馈"计时冻结/缺 tok/s"定位为宿主未重启 + `/reload` 拆除旧实例定时器与订阅但不重载插件(非代码 bug),记入已知限制 |
 | 2026-10-03 | — | 文档体系重构:DESIGN.md 单文件 → `docs/` 总览 + guides/features/architecture/decisions 分类分文件,根 README 瘦身为入口页;DESIGN.md 保留为指针。纯文档变更,无代码改动 |
 | 2026-10-03 | 0.7.4 | 单元测试套件:新增 `test/`(与 src 同级,38 用例)——format/rate-model/settings/calibration/session-metrics 五个模块的纯函数与 factory 层,含轮次生命周期、防双计锁、EMA 钳位收敛、旧存储归一等关键行为;零 devDependency(Node ≥22 原生 type stripping + node:test + 15 行解析钩子),`npm test` 一键执行;运行时行为零变化 |
+| 2026-10-03 | 0.7.5 | 冷启动回填:重开终端/接手旧会话时,上轮 `🏁` 时长与 `⚡` 精确速率立即可见——footer/右栏渲染时对无内存记录的会话,从已同步权威消息记录回放上一轮(末条 user 消息 → 末条已完成 assistant);三重防护:已有实时记录不覆盖、运行中不写、末条消息未完成(异端运行中)不显示旧值;数据源与 finishTurn 精确结算同源,零新增采集 |

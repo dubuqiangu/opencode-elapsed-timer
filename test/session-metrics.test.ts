@@ -158,3 +158,88 @@ test("handlers ignore events without a session id", () => {
   assert.equal(metrics.starts.size, 0)
   assert.equal(metrics.rates.size, 0)
 })
+
+test("backfillLastTurn restores the idle readout for sessions opened after a TUI restart", () => {
+  const userCreated = Date.now() - 60_000
+  const { metrics } = createMetricsHarness([
+    {
+      type: "user",
+      time: { created: userCreated, completed: userCreated + 100 },
+      tokens: {},
+    },
+    {
+      type: "assistant",
+      time: { created: userCreated + 1_000, completed: userCreated + 3_000 },
+      tokens: { output: 100, reasoning: 0 },
+    },
+  ])
+  metrics.backfillLastTurn("ses_backfill")
+  assert.equal(metrics.lastDurations.get("ses_backfill"), 3_000)
+  assert.equal(metrics.lastExactRates.get("ses_backfill"), 50)
+})
+
+test("backfillLastTurn never overwrites values already tracked live", () => {
+  const userCreated = Date.now() - 60_000
+  const { metrics } = createMetricsHarness([
+    {
+      type: "user",
+      time: { created: userCreated, completed: userCreated + 100 },
+      tokens: {},
+    },
+    {
+      type: "assistant",
+      time: { created: userCreated + 1_000, completed: userCreated + 3_000 },
+      tokens: { output: 100, reasoning: 0 },
+    },
+  ])
+  metrics.lastDurations.set("ses_live", 42_000)
+  metrics.lastExactRates.set("ses_live", 7)
+  metrics.backfillLastTurn("ses_live")
+  assert.equal(metrics.lastDurations.get("ses_live"), 42_000)
+  assert.equal(metrics.lastExactRates.get("ses_live"), 7)
+})
+
+test("backfillLastTurn skips sessions with an active run", () => {
+  const { metrics } = createMetricsHarness([
+    {
+      type: "user",
+      time: { created: Date.now() - 60_000 },
+      tokens: {},
+    },
+    {
+      type: "assistant",
+      time: { created: Date.now() - 59_000, completed: Date.now() - 57_000 },
+      tokens: { output: 100, reasoning: 0 },
+    },
+  ])
+  metrics.onExecutionStarted({ sessionID: "ses_active" })
+  metrics.backfillLastTurn("ses_active")
+  assert.equal(metrics.lastDurations.has("ses_active"), false)
+})
+
+test("backfillLastTurn skips sessions whose last user message has no completed reply", () => {
+  // The last turn is still running elsewhere (another TUI / background
+  // subagent) — showing the previous turn's numbers would lie.
+  const { metrics } = createMetricsHarness([
+    {
+      type: "assistant",
+      time: { created: Date.now() - 60_000, completed: Date.now() - 58_000 },
+      tokens: { output: 100, reasoning: 0 },
+    },
+    {
+      type: "user",
+      time: { created: Date.now() - 5_000 },
+      tokens: {},
+    },
+  ])
+  metrics.backfillLastTurn("ses_pending")
+  assert.equal(metrics.lastDurations.has("ses_pending"), false)
+  assert.equal(metrics.lastExactRates.has("ses_pending"), false)
+})
+
+test("backfillLastTurn is a safe no-op for sessions without parseable records", () => {
+  const { metrics } = createMetricsHarness([])
+  metrics.backfillLastTurn("ses_empty")
+  assert.equal(metrics.lastDurations.has("ses_empty"), false)
+  assert.doesNotThrow(() => metrics.backfillLastTurn("ses_empty"))
+})
