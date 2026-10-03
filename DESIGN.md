@@ -362,7 +362,7 @@ context.ui.slot({
 
 **命中率口径**:会话级用 `cache.read ÷ (input + cache.read + cache.write)`(与原生面板/参考实现一致,分母含 cache write,更严格);footer 日级维持 `read ÷ (read + input)`(日级 stats API 口径)。两口径并存属有意为之。
 
-**footer hit 维度可配置(0.6.6)**:footer 的 hit 段支持两种维度——`today`(默认,全 session 日级汇总,`hit nn%`)与 `session`(当前会话,严格口径,`hit·s nn%`),经 `/usage-dim` 斜杠命令切换,持久化于 `storage.store("usage-meter.settings")`(2.0.21 宿主尚无插件 options 配置通道,故命令+存储自洽;未来宿主支持 `{ package, options }` 后可加配置文件直读)。面板不受影响,始终完整展示两个维度。
+**footer hit 维度可配置(0.6.6,0.6.7 重构为设置入口)**:footer 的 hit 段支持两种维度——`today`(默认,全 session 日级汇总,`hit nn%`)与 `session`(当前会话,严格口径,`hit·s nn%`),经 **`/usage-settings` 设置弹窗**(可扩展,弹窗内 `d` 切换,状态响应式)或命令面板"切换 hit 维度"直切命令配置,持久化于 `storage.store("usage-meter.settings")`(2.0.21 宿主尚无插件 options 配置通道,故命令+存储自洽;未来宿主支持 `{ package, options }` 后可加配置文件直读)。面板不受影响,始终完整展示两个维度。
 
 **80% 压缩预警**:窗口占用 ≥80% 时,面板占用行追加"▲ 接近压缩阈值"。阈值为常量 `CTX_WARN_PCT`,未来可配置化。(0.6.4 起 footer 不再有 ctx 段,预警仅在面板出现。)
 
@@ -447,3 +447,4 @@ context.ui.slot({
 | 2026-10-03 | 0.6.4 | 首次真机验证暴露的运行时修复:stats 客户端方法改走 `client.session.stats`(v2.0.21 `SessionApi` 实际路径,原 `experimental.session.stats` 不存在致 Σ/hit 从未显示)+ `from/to` 改传 number(effect schema 校验);客户端方法缺失改 30s 重试不再一次性判死;`/usage-full` 的 keymap layer 改从 `app` slot 组件作用域注册(原 `setup()` 直接调用抛 `Keymap.Provider is missing` 被吞,命令从未注册);footer 移除 ctx 段(与 tok/s 同级冗余,面板"当前窗口"块保留完整口径),`ctxPercent` 实现保留;根因取证与实证见 §12D |
 | 2026-10-03 | 0.6.5 | tok/s 空闲值真机偏差修复:原生 70.5 vs 插件 63 avg——`message.updated` 精确通道单点不可靠,空闲精确速率改为轮结束时从权威消息记录聚合(`Σ(output+reasoning) ÷ Σ(created→completed)`,原生同口径),1.5s 延迟重算兜底,`tsOf` 容忍式时间戳解析,时长 <60s 显示一位小数对齐原生;§13 核实宿主已内置完成通知(`internal:notifications` + `attention` 配置),"完成提示音"自研项撤销 |
 | 2026-10-03 | 0.6.6 | footer hit 维度可配置:新增 `/usage-dim` 命令切换 `今日汇总 hit nn%`(默认,原行为)⇄ `当前会话 hit·s nn%`(单会话严格口径),storage 持久化 + toast 反馈 + 响应式即时生效;取证确认 2.0.21 宿主无插件 options 配置通道(dev 的 `{package, options}` 未回传),故配置走命令+存储;面板两维度始终完整 |
+| 2026-10-03 | 0.6.7 | 配置入口重构(命名清晰化):`/usage-dim` → **`/usage-settings` 设置弹窗**(可扩展:当前 hit 维度一项,后续配置项并入),弹窗内 `d` 切换、状态响应式刷新、自动持久化;另保留命令面板"切换 hit 维度"直切命令兜底(防弹窗内 keybind 注册失败的宿主差异) |

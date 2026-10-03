@@ -770,7 +770,47 @@ export default Plugin.define({
       console.error("[usage-meter] session.panel slot failed:", error)
     }
 
-    // /usage-full + palette command "用量统计".
+    // v0.6.7: /usage-settings — extensible settings dialog (currently one
+    // item: the footer hit dimension). Reactive reads from the settings
+    // store mean the body re-renders the moment a value changes.
+    const toggleHitScope = (): void => {
+      try {
+        const next = settingsStore?.hitScope === "session" ? "today" : "session"
+        void updateSettingsStore?.((draft: any) => {
+          draft.hitScope = next
+        })
+      } catch {}
+    }
+    const SettingsBody = () => {
+      // Keymap layers must be created from a component scope (see §12D).
+      try {
+        ;(context.keymap as any)?.layer?.(() => ({
+          commands: [
+            {
+              id: "usage-meter.settings.toggle-hit",
+              title: "用量设置:切换 hit 维度",
+              bind: "d",
+              run: () => toggleHitScope(),
+            },
+          ],
+        }))
+      } catch {}
+      const scope = settingsStore?.hitScope === "session" ? "session" : "today"
+      const label =
+        scope === "session"
+          ? "当前会话(hit·s,严格口径 read ÷ (input+read+write))"
+          : "今日汇总(hit,全 session 日级,read ÷ (read+input))"
+      const lines = [
+        "用量设置",
+        "──────────────────────────────",
+        `hit 维度:${label}`,
+        "",
+        "d 切换维度 · Esc 关闭(选择自动持久化)",
+      ]
+      return <text fg={(context.theme as any)?.text?.base}>{lines.join("\n")}</text>
+    }
+
+    // /usage-full + palette commands "用量统计" / "用量设置".
     // v0.6.4 runtime fix: a keymap layer must be created from a component
     // scope — calling it directly from setup() throws "Keymap.Provider is
     // missing" on the host, which silently killed the /usage-full command
@@ -798,21 +838,35 @@ export default Plugin.define({
                     },
                   },
                   {
-                    // v0.6.6: toggle the footer hit metric between the
-                    // all-session daily aggregate and the current session.
-                    // Persists via the settings store; reactive re-render.
+                    // v0.6.7: /usage-settings — extensible settings dialog
+                    // (footer hit dimension today; more items later).
+                    id: "usage-meter.settings",
+                    title: "用量设置(footer 指标维度等)",
+                    group: "usage-meter",
+                    palette: true,
+                    slash: { name: "usage-settings" },
+                    run: () => {
+                      try {
+                        context.ui.dialog.set({ size: "large", centered: true })
+                      } catch {}
+                      try {
+                        context.ui.dialog.show(() => <SettingsBody />, () => {})
+                      } catch (error) {
+                        console.error("[usage-meter] settings dialog failed:", error)
+                      }
+                    },
+                  },
+                  {
+                    // Palette-only backup toggle: works even if the dialog's
+                    // in-dialog keybind cannot register on some hosts.
                     id: "usage-meter.hit-scope",
                     title: "切换 hit 维度(今日汇总 ⇄ 当前会话)",
                     group: "usage-meter",
                     palette: true,
-                    slash: { name: "usage-dim" },
                     run: () => {
+                      toggleHitScope()
                       try {
-                        const next =
-                          settingsStore?.hitScope === "session" ? "today" : "session"
-                        void updateSettingsStore?.((draft: any) => {
-                          draft.hitScope = next
-                        })
+                        const next = settingsStore?.hitScope
                         ;(context.ui as any)?.toast?.show?.({
                           title: "usage-meter",
                           message:
