@@ -14,7 +14,7 @@
 |---|---|---|
 | 运行中(有起始时间) | 等待计时 + 实时输出速率 | `⏱ waited 1m 02s   ⚡ 87 tok/s` |
 | 运行中(起始时间缺失) | 占位提示 | `⏱ running` |
-| 空闲(有历史) | 上轮用时 + 平均速率 | `✓ last 1m 02s   ⚡ 55 tok/s avg` |
+| 空闲(有历史) | 上轮用时 + 平均速率 | `🏁 1m 02s   ⚡ 55 tok/s avg` |
 | 流式停顿(工具执行间隙) | 隐藏速率,仅保留计时 | `⏱ waited 8s` |
 
 设计目标:单文件实现、零配置、事件驱动、对所有 session 生效(含子代理 session)。
@@ -159,7 +159,7 @@ sequenceDiagram
     end
     S-->>P: session.execution.succeeded
     Note over P: 结算 lastDuration + lastAvg
-    TUI-->>U: ✓ last …  ⚡ xx tok/s avg
+    TUI-->>U: 🏁 …  ⚡ xx tok/s avg
 ```
 
 交互式版本见 `docs/interaction-sequence.html`(可缩放/高亮/导出)。
@@ -364,7 +364,7 @@ context.ui.slot({
 
 **footer 指标段配置化(0.6.6 引入,0.6.7 设置入口,0.7.0 重定默认)**:footer 的 hit 段支持两种维度——`today`(全 session 日级汇总,`hit nn%`)与 `session`(当前会话,严格口径,`hit·s nn%`);**0.7.0 起 footer 默认只显示 ⏱ 与 ⚡**(速率链路含空闲终值不变),`Σ`/`hit` 段改为**默认关的 opt-in 开关**。全部经 **`/usage-settings` 设置弹窗**配置(四项:hit 维度 `d`、footer Σ `f`、footer hit `h`、右栏指标块 `b`),持久化于 `storage.store("usage-meter.settings")`(2.0.21 宿主尚无插件 options 配置通道,故命令+存储自洽;未来宿主支持 `{ package, options }` 后可加配置文件直读);旧存储缺键时由读取器按文档默认值归一。另有命令面板"切换 hit 维度"直切命令兜底。`/usage-full` 面板不受影响,始终完整展示两个维度。
 
-**右栏指标块(0.7.0)**:会话右栏(标题 + Context + MCP + agents 区块的宿主侧栏)经 v2.0.21 源码取证确认——宿主自己的 Context/MCP 区块就是 `feature-plugins/sidebar/context.tsx`/`mcp.tsx` 通过 `append: "sidebar.content"` 挂载的(即 `routes/session/sidebar.tsx` 右栏 scrollbox 内的 `sidebar.content` slot)。插件以同通道 `append: "sidebar.content"` 追加 `Stats` 块,落在上述区块下方:当前会话实时 ⏱/⚡ **分行展示**(空闲显示 ✓ last + 精确速率,与 footer 同数据同口径)+ `📊 总量 (today)` + `🎯 命中率 (today|session)`(维度跟随设置;标注统一放括号,0.7.1 起块内全英文图标行——右栏窄列单行并排会挤压换行)。默认开,设置中可关;生命周期纳入清理。
+**右栏指标块(0.7.0)**:会话右栏(标题 + Context + MCP + agents 区块的宿主侧栏)经 v2.0.21 源码取证确认——宿主自己的 Context/MCP 区块就是 `feature-plugins/sidebar/context.tsx`/`mcp.tsx` 通过 `append: "sidebar.content"` 挂载的(即 `routes/session/sidebar.tsx` 右栏 scrollbox 内的 `sidebar.content` slot)。插件以同通道 `append: "sidebar.content"` 追加 `Stats` 块,落在上述区块下方:当前会话实时 ⏱/⚡ **分行展示**(空闲显示 🏁 + 精确速率,与 footer 同数据同口径)+ `📊 总量 (today)` + `🎯 命中率 (today|session)`(维度跟随设置;标注统一放括号,0.7.1 起块内全英文图标行——右栏窄列单行并排会挤压换行)。默认开,设置中可关;生命周期纳入清理。
 
 **80% 压缩预警**:窗口占用 ≥80% 时,面板占用行追加"▲ 接近压缩阈值"。阈值为常量 `CTX_WARN_PCT`,未来可配置化。(0.6.4 起 footer 不再有 ctx 段,预警仅在面板出现。)
 
@@ -453,3 +453,4 @@ context.ui.slot({
 | 2026-10-03 | 0.6.8 | hit 一位小数(整数百分比在日级比值天然稳定时看似"冻结")+ Σ/hit 60s 周期刷新(后台会话消耗不触发本会话轮事件,空闲期不再滞后);刷新策略见 §12B |
 | 2026-10-03 | 0.7.0 | footer 重定默认 + 右栏指标块:footer 默认只显示 ⏱/⚡(速率链路含空闲精确终值不变),`Σ`/`hit` 改为 `/usage-settings` opt-in 开关(默认关,`f`/`h` 切换);新增右栏"用量"块(`append: "sidebar.content"`,与宿主 Context/MCP 区块同通道,默认开,`b` 切换)——当前会话实时 ⏱/⚡ + 今日 Σ + hit(维度跟随设置);设置读取器对旧存储缺键按文档默认值归一;slot 取证与设计见 §12B |
 | 2026-10-03 | 0.7.1 | 右栏块真机反馈样式修复:⏱/⚡ 分行展示(窄列单行被挤压换行);块内标签全英文,标题"用量"→`Stats`;Σ/hit 改图标 `📊`/`🎯`,范围标注统一括号后缀 `(today)`/`(session)` |
+| 2026-10-03 | 0.7.2 | 代码模块化拆分(纯结构调整,行为零变化):tui.tsx 1275 行 → 入口仅 278 行组装,按功能拆为 format/rate-model(纯函数)、calibration/settings(持久化)、stats-source(数据源)、session-metrics(事件+运行时状态)、panel-content(面板构建)、components/*(4 个 UI 组件)共 12 文件;单文件 ≤ ~400 行、入口只装配;空闲置行 `✓ last` 改终点旗 `🏁`(footer/右栏/面板头部三处统一,全图标化标签)。同时该拆分规则写入全局 AGENTS.md §5 代码组织 |
