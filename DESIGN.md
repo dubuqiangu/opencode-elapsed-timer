@@ -12,10 +12,10 @@
 
 | 场景 | 显示内容 | 示例 |
 |---|---|---|
-| 运行中(有起始时间) | 等待计时 + 实时输出速率 | `⏱ waited 1m 02s   ⚡ 87 tok/s` |
+| 运行中(有起始时间) | 等待计时 + 实时输出速率 | `⏱ 1m 02s   ⚡ 87 tok/s` |
 | 运行中(起始时间缺失) | 占位提示 | `⏱ running` |
 | 空闲(有历史) | 上轮用时 + 平均速率 | `🏁 1m 02s   ⚡ 55 tok/s avg` |
-| 流式停顿(工具执行间隙) | 隐藏速率,仅保留计时 | `⏱ waited 8s` |
+| 流式停顿(工具执行间隙) | 隐藏速率,仅保留计时 | `⏱ 8s` |
 
 设计目标:单文件实现、零配置、事件驱动、对所有 session 生效(含子代理 session)。
 
@@ -155,7 +155,7 @@ sequenceDiagram
     Note over P: 精确值 > 估算值时采纳校准
     loop UI 重渲染(每 500ms tick)
         TUI->>P: footer render(sessionID)
-        P-->>TUI: ⏱ waited …  ⚡ xx tok/s
+        P-->>TUI: ⏱ …  ⚡ xx tok/s
     end
     S-->>P: session.execution.succeeded
     Note over P: 结算 lastDuration + lastAvg
@@ -336,6 +336,7 @@ context.ui.slot({
 - 端点带 `experimental`,OpenCode 升级可能变动 → 全部调用收敛在 `statsCall()` 单函数,便于替换。
 - TUI 内置 client 的方法路径 `experimental.session.stats` 依赖宿主版本 → 防御式访问,运行时验证。
 - 全量查询的 `models[]` 可能上百行(探活/失败请求 tokens 为 0)→ 弹窗按输出过滤排序,只显示 Top 5。
+- **热重载生命周期(0.7.3 真机实证)**:`opencode plugin update` 只改磁盘包,运行中宿主仍持旧代码;`/reload` 会拆掉旧实例的定时器与事件订阅(500ms 时钟、session.* 订阅)**但不从磁盘重载插件**——表现为 footer 计时冻结、tok/s 不再更新、⏳ 无起点态。**更新后必须完整重启 TUI** 才加载新版本并恢复全部接线。
 
 ### 12B. 当前会话窗口与会话累计(0.6.0)
 
@@ -455,3 +456,4 @@ context.ui.slot({
 | 2026-10-03 | 0.7.0 | footer 重定默认 + 右栏指标块:footer 默认只显示 ⏱/⚡(速率链路含空闲精确终值不变),`Σ`/`hit` 改为 `/usage-settings` opt-in 开关(默认关,`f`/`h` 切换);新增右栏"用量"块(`append: "sidebar.content"`,与宿主 Context/MCP 区块同通道,默认开,`b` 切换)——当前会话实时 ⏱/⚡ + 今日 Σ + hit(维度跟随设置);设置读取器对旧存储缺键按文档默认值归一;slot 取证与设计见 §12B |
 | 2026-10-03 | 0.7.1 | 右栏块真机反馈样式修复:⏱/⚡ 分行展示(窄列单行被挤压换行);块内标签全英文,标题"用量"→`Stats`;Σ/hit 改图标 `📊`/`🎯`,范围标注统一括号后缀 `(today)`/`(session)` |
 | 2026-10-03 | 0.7.2 | 代码模块化拆分(纯结构调整,行为零变化):tui.tsx 1275 行 → 入口仅 278 行组装,按功能拆为 format/rate-model(纯函数)、calibration/settings(持久化)、stats-source(数据源)、session-metrics(事件+运行时状态)、panel-content(面板构建)、components/*(4 个 UI 组件)共 12 文件;单文件 ≤ ~400 行、入口只装配;空闲置行 `✓ last` 改终点旗 `🏁`(footer/右栏/面板头部三处统一,全图标化标签)。同时该拆分规则写入全局 AGENTS.md §5 代码组织 |
+| 2026-10-03 | 0.7.3 | 状态标签全图标化:`⏱ waited` → `⏱`、运行中无起点态 `⏱ running` → `⏳`(footer/右栏/面板三处);真机反馈"计时冻结/缺 tok/s"定位为宿主未重启 + `/reload` 拆除旧实例定时器与订阅但不重载插件(非代码 bug),记入已知限制 |

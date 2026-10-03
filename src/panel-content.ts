@@ -213,13 +213,13 @@ export function createPanelContent(deps: {
     const last = lastDurations.get(sessionID)
     const currentTime = now()
     if (running && started !== undefined) {
-      let line = `  ⏱ waited ${format(currentTime - started)}`
+      let line = `  ⏱ ${format(currentTime - started)}`
       const rate = rates.get(sessionID)
       const tps = rate ? liveRate(rate, currentTime) : undefined
       if (tps !== undefined) line += `   ⚡ ${Math.round(tps * calibOf(sessionID))} tok/s`
       lines.push(line)
     } else if (running) {
-      lines.push("  ⏱ running")
+      lines.push("  ⏳")
     } else if (last !== undefined) {
       let line = `  🏁 ${format(last)}`
       const exact = lastExactRates.get(sessionID)

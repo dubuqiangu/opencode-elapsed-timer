@@ -49,7 +49,7 @@ export function createSidebarMetrics(deps: {
         metricLines.push(`⚡ ${Math.round(liveTokPerSec * calibOf(sessionID))} tok/s`)
       }
     } else if (running) {
-      metricLines.push("⏱ running")
+      metricLines.push("⏳")
     } else if (last !== undefined) {
       metricLines.push(`🏁 ${format(last)}`)
       const exact = lastExactRates.get(sessionID)

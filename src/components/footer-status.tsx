@@ -41,12 +41,14 @@ export function createFooterStatus(deps: {
 
     const parts: string[] = []
     if (running && started !== undefined) {
-      parts.push(`⏱ waited ${format(currentTime - started)}`)
+      // v0.7.3: icon-only state labels — ⏱ elapsed while waiting, ⏳ running
+      // without a start timestamp, 🏁 last turn. No textual state words.
+      parts.push(`⏱ ${format(currentTime - started)}`)
       const rate = rates.get(sessionID)
       const tps = rate ? liveRate(rate, currentTime) : undefined
       if (tps !== undefined) parts.push(`⚡ ${Math.round(tps * calibOf(sessionID))} tok/s`)
     } else if (running) {
-      parts.push(`⏱ running`)
+      parts.push(`⏳`)
     } else if (last !== undefined) {
       // v0.7.2: checkered flag replaces the "✓ last" wording (icon-only
       // labels, consistent with ⏱/⚡/📊/🎯).

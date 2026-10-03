@@ -2,7 +2,7 @@
 
 OpenCode V2 TUI 插件:在输入框下方的状态行(`prompt.footer.status`)实时显示当前会话的等待时间、生成速率(tok/s)与用量指标。
 
-- **运行中**:`⏱ waited 12.3s   ⚡ 42 tok/s`(0.7.0 起默认仅此两段) — 计时每 500ms 跳动;速率基于 10s 采样滑动窗口的字符估算,并用每轮结束的精确 token 做持续校准(EMA,按模型跨会话持久化,收敛后偏差 ~5-10%);流式停顿超过 4s(工具调用间隙)自动隐藏
+- **运行中**:`⏱ 12.3s   ⚡ 42 tok/s`(0.7.3 起状态全图标化:`⏱` 计时、`⏳` 运行中无起点、`🏁` 上轮;0.7.0 起默认仅 ⏱/⚡ 两段) — 计时每 500ms 跳动;速率基于 10s 采样滑动窗口的字符估算,并用每轮结束的精确 token 做持续校准(EMA,按模型跨会话持久化,收敛后偏差 ~5-10%);流式停顿超过 4s(工具调用间隙)自动隐藏
 - **空闲**:`🏁 17.5s   ⚡ 70 tok/s`(0.7.2 起终点旗图标替代 `✓ last` 文案) — 速率与耗时均为轮结束时的**精确值**(消息级 `created→completed` 口径,一位小数对齐原生);无精确值时回退启发式 avg(标注 avg)
 - **可选 footer 段**(默认关,`/usage-settings` 开启):`Σ 1.5M`(今日 token 总耗,60s 周期 + 每轮结束 1.5s 防抖刷新,后台会话消耗也计入)、`hit 96.4%`(今日缓存命中率 `cache.read ÷ (cache.read + input)`,一位小数;维度可切当前会话严格口径,显示为 `hit·s`)
 - **右栏指标块**(0.7.0,默认开):会话右栏(Context/MCP 下方)追加 `Stats` 区块(0.7.1 起全英文、图标行)——当前会话实时 ⏱/⚡ 分行展示(空闲显示 🏁 + 精确速率)+ `📊 总量 (today)` + `🎯 命中率 (today|session)`(维度跟随设置);经 `sidebar.content` slot 与宿主 Context/MCP 区块同通道,可在 `/usage-settings` 中关闭
@@ -52,7 +52,7 @@ npm install ~/.config/opencode/plugins/usage-meter
 
 1. 重启 opencode(或 `opencode service restart` 后重开 TUI)
 2. 任意会话里发一条消息
-3. 状态行出现 `⏱ waited …` 跳动与 `⚡ … tok/s` 流速;跑完变 `🏁 …   ⚡ … tok/s`(或 avg 回退)
+3. 状态行出现 `⏱ …` 跳动与 `⚡ … tok/s` 流速;跑完变 `🏁 …   ⚡ … tok/s`(或 avg 回退)
 
 若状态行无显示:`~/.local/share/opencode/log/opencode.log` 过滤 `role=cli` 查插件加载错误。
 
