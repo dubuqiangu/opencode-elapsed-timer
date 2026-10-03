@@ -47,7 +47,9 @@ export default Plugin.define({
     // subscription order (calibration store first, then settings store).
     const calibration = createCalibration(context)
     const settings = createSettings(context)
-    const statsSource = createStatsSource(context)
+    // v0.7.7: the stats source follows the persisted Σ/📊 total scope so the
+    // rolling window (24h/7d/30d) stays fresh alongside today.
+    const statsSource = createStatsSource(context, settings.totalScopeEnabled)
     const sessionMetrics = createSessionMetrics({
       context,
       calibration,
@@ -56,6 +58,7 @@ export default Plugin.define({
     const panelContent = createPanelContent({
       context,
       sessionMetrics,
+      settings,
       statsSource,
       calibration,
       now,
@@ -226,11 +229,12 @@ export default Plugin.define({
     listen("message.updated", sessionMetrics.onMessageUpdated)
 
     // Initial daily-usage load for the footer Σ.
-    void statsSource.fetchToday()
+    statsSource.fetchTotals()
     // v0.6.8: periodic refresh (60s) — background sessions (subagents,
     // headless runs) consume usage without firing this session's turn
     // events, so the daily footer stats could lag indefinitely while idle.
-    const statsInterval = setInterval(() => void statsSource.fetchToday(), 60_000)
+    // v0.7.7: covers the active rolling scope as well.
+    const statsInterval = setInterval(() => statsSource.fetchTotals(), 60_000)
 
     const unregister = context.ui.slot({
       append: "prompt.footer.status",

@@ -4,8 +4,10 @@
 import { createSignal } from "solid-js"
 import { fmtNum, fmtUSD, format } from "./format"
 import { liveRate } from "./rate-model"
+import { TOTAL_SCOPE_LABELS } from "./settings"
 import type { CalibrationApi } from "./calibration"
 import type { SessionMetricsApi } from "./session-metrics"
+import type { SettingsApi } from "./settings"
 import type { StatsSourceApi } from "./stats-source"
 
 export const PANEL_NAME = "usage-meter.stats"
@@ -27,13 +29,15 @@ export type PanelContentApi = {
 export function createPanelContent(deps: {
   context: any
   sessionMetrics: SessionMetricsApi
+  settings: SettingsApi
   statsSource: StatsSourceApi
   calibration: CalibrationApi
   now: () => number
 }): PanelContentApi {
   const { context, now } = deps
   const { starts, lastDurations, lastAvgRates, lastExactRates, rates } = deps.sessionMetrics
-  const { todayStats, setTodayStats, statsCall, localMidnight, unwrap, timezone } = deps.statsSource
+  const { setTodayStats, statsCall, totalFor, localMidnight, unwrap, timezone } = deps.statsSource
+  const { totalScopeEnabled } = deps.settings
   const { calibOf } = deps.calibration
 
   const [detail, setDetail] = createSignal<any>(undefined)
@@ -233,11 +237,14 @@ export function createPanelContent(deps: {
     } else {
       lines.push("  (空闲)")
     }
-    const ts = todayStats()
-    if (ts) {
-      const tk = ts?.tokens
-      const total = (tk?.input ?? 0) + (tk?.output ?? 0) + (tk?.reasoning ?? 0)
-      if (total > 0) lines.push(`  Σ 今日 ${fmtNum(total)}`)
+    // v0.7.7: the panel-header Σ follows the persisted total scope.
+    const totalScope = totalScopeEnabled()
+    const scopeStats = totalFor(totalScope)
+    if (scopeStats) {
+      const scopeTokens = scopeStats?.tokens
+      const total =
+        (scopeTokens?.input ?? 0) + (scopeTokens?.output ?? 0) + (scopeTokens?.reasoning ?? 0)
+      if (total > 0) lines.push(`  Σ ${TOTAL_SCOPE_LABELS[totalScope]} ${fmtNum(total)}`)
     }
     lines.push(...sessionUsageLines(sessionID))
     lines.push("")

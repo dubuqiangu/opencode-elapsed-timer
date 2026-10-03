@@ -28,8 +28,8 @@ export function createSidebarMetrics(deps: {
   const { context, now } = deps
   const { starts, lastDurations, lastAvgRates, lastExactRates, rates, backfillLastTurn } =
     deps.sessionMetrics
-  const { sidebarMetricsEnabled, hitScopeEnabled } = deps.settings
-  const { todayStats } = deps.statsSource
+  const { sidebarMetricsEnabled, hitScopeEnabled, totalScopeEnabled } = deps.settings
+  const { todayStats, totalFor } = deps.statsSource
   const { calibOf } = deps.calibration
 
   const SidebarMetrics = (props: { sessionID: string }) => {
@@ -63,11 +63,16 @@ export function createSidebarMetrics(deps: {
     }
     const stats = todayStats()
     const hitScope = hitScopeEnabled()
-    if (stats) {
-      const todayTokens = stats?.tokens
+    // v0.7.7: the 📊 total follows the persisted scope — today is the
+    // default; rolling windows (24h/7d/30d) are separate read-only queries
+    // fetched by the stats source on demand.
+    const totalScope = totalScopeEnabled()
+    const scopeStats = totalFor(totalScope)
+    if (scopeStats) {
+      const scopeTokens = scopeStats?.tokens
       const total =
-        (todayTokens?.input ?? 0) + (todayTokens?.output ?? 0) + (todayTokens?.reasoning ?? 0)
-      if (total > 0) metricLines.push(`📊 ${fmtNum(total)} (today)`)
+        (scopeTokens?.input ?? 0) + (scopeTokens?.output ?? 0) + (scopeTokens?.reasoning ?? 0)
+      if (total > 0) metricLines.push(`📊 ${fmtNum(total)} (${totalScope})`)
     }
     if (hitScope === "session") {
       try {

@@ -7,6 +7,7 @@ OpenCode V2 TUI 用量仪表盘插件:footer 实时计时/tok/s、右栏 Stats �
 | 分类 | 文件 | 内容 |
 |---|---|---|
 | **使用** | [guides/install.md](guides/install.md) | 安装 / 更新 / 验证 / 卸载 / 热重载注意事项 |
+| | [features/display-logic.md](features/display-logic.md) | **显示逻辑与功能总览(推荐先读)**:功能清单、判定流程图、速率来源、"为什么没显示"速查、数据来源矩阵 |
 | | [features/footer.md](features/footer.md) | footer 状态行:状态图标、可选段、tok/s 口径 |
 | | [features/sidebar-stats.md](features/sidebar-stats.md) | 右栏 Stats 指标块 |
 | | [features/usage-panel.md](features/usage-panel.md) | `/usage-full` 统计面板 |
@@ -26,4 +27,4 @@ OpenCode V2 TUI 用量仪表盘插件:footer 实时计时/tok/s、右栏 Stats �
 
 - 装机:`opencode plugin add github:dubuqiangu/opencode-usage-meter` → 详见 [安装指南](guides/install.md)
 - 上手:发一条消息,footer 出现 `⏱ … ⚡ … tok/s` → 详见 [footer 功能](features/footer.md)
-- 当前版本:0.7.6 → 详见 [变更记录](decisions/changelog.md)
+- 当前版本:0.7.7 → 详见 [变更记录](decisions/changelog.md)

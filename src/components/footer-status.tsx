@@ -25,8 +25,9 @@ export function createFooterStatus(deps: {
   const { context, now } = deps
   const { starts, lastDurations, lastAvgRates, lastExactRates, rates, backfillLastTurn } =
     deps.sessionMetrics
-  const { hitScopeEnabled, footerHitEnabled, footerSigmaEnabled } = deps.settings
-  const { todayStats } = deps.statsSource
+  const { hitScopeEnabled, totalScopeEnabled, footerHitEnabled, footerSigmaEnabled } =
+    deps.settings
+  const { todayStats, totalFor } = deps.statsSource
   const { calibOf } = deps.calibration
 
   const FooterStatus = (componentProps: { slotProps?: any }) => {
@@ -83,14 +84,22 @@ export function createFooterStatus(deps: {
         if (denominator > 0) parts.push(`hit·s ${((cacheRead / denominator) * 100).toFixed(1)}%`)
       } catch {}
     }
+    // v0.7.7: the Σ segment follows the persisted total scope (today is the
+    // silent default; rolling windows carry a range tag so the number can't
+    // be misread as "today"). Segment order is unchanged: Σ before hit.
+    const totalScope = totalScopeEnabled()
+    const scopeStats = totalFor(totalScope)
+    if (footerSigmaEnabled() && scopeStats) {
+      const scopeTokens = scopeStats?.tokens
+      const scopeTotal =
+        (scopeTokens?.input ?? 0) + (scopeTokens?.output ?? 0) + (scopeTokens?.reasoning ?? 0)
+      if (scopeTotal > 0) {
+        parts.push(`Σ ${fmtNum(scopeTotal)}${totalScope === "today" ? "" : ` (${totalScope})`}`)
+      }
+    }
     const stats = todayStats()
     if (stats) {
       const todayTokens = stats?.tokens
-      const total =
-        (todayTokens?.input ?? 0) + (todayTokens?.output ?? 0) + (todayTokens?.reasoning ?? 0)
-      if (footerSigmaEnabled() && total > 0) {
-        parts.push(`Σ ${fmtNum(total)}`)
-      }
       if (showHitInFooter && hitScope !== "session") {
         const cacheRead = todayTokens?.cache?.read ?? 0
         const denominator = cacheRead + (todayTokens?.input ?? 0)

@@ -1,15 +1,28 @@
 // Durable user settings (footer/sidebar dimension toggles). Split from
 // tui.tsx in v0.7.x — behavior unchanged.
 
+export type TotalScope = "today" | "24h" | "7d" | "30d"
+export const TOTAL_SCOPES: readonly TotalScope[] = ["today", "24h", "7d", "30d"]
+// Human labels for the panel/settings dialog (Chinese surfaces); the
+// sidebar block keeps the raw scope as its English range tag.
+export const TOTAL_SCOPE_LABELS: Record<TotalScope, string> = {
+  today: "今日",
+  "24h": "近24小时",
+  "7d": "近7日",
+  "30d": "近30日",
+}
+
 export type SettingsApi = {
   settingsStore: any
   updateSettings: ((fn: (draft: any) => void) => Promise<void>) | undefined
   hitScopeEnabled: () => "today" | "session"
+  totalScopeEnabled: () => TotalScope
   footerSigmaEnabled: () => boolean
   footerHitEnabled: () => boolean
   sidebarMetricsEnabled: () => boolean
   toggleSettingsFlag: (flagKey: string, currentValue: boolean) => void
   toggleHitScope: () => void
+  cycleTotalScope: () => void
   release: () => void
 }
 
@@ -31,6 +44,10 @@ export function createSettings(context: any): SettingsApi {
           footerSigma: false,
           footerHit: false,
           sidebarMetrics: true,
+          // v0.7.7: rolling secondary dimension for the Σ/📊 total
+          // (today | last 24h | last 7d | last 30d). Absent key reads as
+          // "today", matching pre-0.7.7 behavior.
+          totalScope: "today" as TotalScope,
         },
       })
       settingsStore = s ?? {}
@@ -42,6 +59,12 @@ export function createSettings(context: any): SettingsApi {
   // the newer keys, so each reader applies the documented default itself.
   const hitScopeEnabled = (): "today" | "session" =>
     settingsStore?.hitScope === "session" ? "session" : "today"
+  // v0.7.7: normalized total-scope reader — invalid/absent persisted values
+  // fall back to "today".
+  const totalScopeEnabled = (): TotalScope =>
+    TOTAL_SCOPES.includes(settingsStore?.totalScope)
+      ? (settingsStore.totalScope as TotalScope)
+      : "today"
   const footerSigmaEnabled = (): boolean => settingsStore?.footerSigma === true
   const footerHitEnabled = (): boolean => settingsStore?.footerHit === true
   const sidebarMetricsEnabled = (): boolean => settingsStore?.sidebarMetrics !== false
@@ -62,6 +85,17 @@ export function createSettings(context: any): SettingsApi {
     } catch {}
   }
 
+  // v0.7.7: cycle the Σ/📊 total dimension today -> 24h -> 7d -> 30d -> today.
+  const cycleTotalScope = (): void => {
+    try {
+      const currentIndex = TOTAL_SCOPES.indexOf(totalScopeEnabled())
+      const nextTotalScope = TOTAL_SCOPES[(currentIndex + 1) % TOTAL_SCOPES.length]
+      void updateSettingsStore?.((draft: any) => {
+        draft.totalScope = nextTotalScope
+      })
+    } catch {}
+  }
+
   // The durable store is host-managed; the original cleanup released
   // nothing for it, so release is a deliberate no-op kept for the
   // factory interface.
@@ -71,11 +105,13 @@ export function createSettings(context: any): SettingsApi {
     settingsStore,
     updateSettings: updateSettingsStore,
     hitScopeEnabled,
+    totalScopeEnabled,
     footerSigmaEnabled,
     footerHitEnabled,
     sidebarMetricsEnabled,
     toggleSettingsFlag,
     toggleHitScope,
+    cycleTotalScope,
     release,
   }
 }

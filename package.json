@@ -1,6 +1,6 @@
 {
   "name": "opencode-usage-meter",
-  "version": "0.7.6",
+  "version": "0.7.7",
   "type": "module",
   "scripts": {
     "test": "node --import ./test/test-loader.mjs --test"
