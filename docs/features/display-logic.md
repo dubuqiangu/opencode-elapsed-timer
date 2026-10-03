@@ -35,6 +35,8 @@
 
 ## 计时/速率显示判定(footer 与右栏同款逻辑)
 
+> 渲染驱动(0.7.8 起两处一致):所有动态读取(`now()`、会话状态、stats 信号、设置信号)都在 `createMemo` 内完成,JSX 插值读取 memo——signal 一变即重绘,不依赖宿主重挂。0.7.7 及以前文本在组件体内预计算,footer 靠宿主高频重绘掩盖、右栏在空闲会话上会冻结(切会话才刷新)。
+
 ```mermaid
 flowchart TD
     Render["每次渲染<br/>(500ms tick 驱动)"] --> HasSid{"拿到 sessionID?"}

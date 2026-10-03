@@ -27,4 +27,4 @@ OpenCode V2 TUI 用量仪表盘插件:footer 实时计时/tok/s、右栏 Stats �
 
 - 装机:`opencode plugin add github:dubuqiangu/opencode-usage-meter` → 详见 [安装指南](guides/install.md)
 - 上手:发一条消息,footer 出现 `⏱ … ⚡ … tok/s` → 详见 [footer 功能](features/footer.md)
-- 当前版本:0.7.7 → 详见 [变更记录](decisions/changelog.md)
+- 当前版本:0.7.8 → 详见 [变更记录](decisions/changelog.md)
