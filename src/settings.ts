@@ -20,6 +20,7 @@ export type SettingsApi = {
   footerSigmaEnabled: () => boolean
   footerHitEnabled: () => boolean
   sidebarMetricsEnabled: () => boolean
+  statsBlockCollapsed: () => boolean
   toggleSettingsFlag: (flagKey: string, currentValue: boolean) => void
   toggleHitScope: () => void
   cycleTotalScope: () => void
@@ -48,6 +49,10 @@ export function createSettings(context: any): SettingsApi {
           // (today | last 24h | last 7d | last 30d). Absent key reads as
           // "today", matching pre-0.7.7 behavior.
           totalScope: "today" as TotalScope,
+          // v0.7.9: click-to-collapse state of the right-sidebar Stats
+          // header (mirrors the native MCP / OMO-Slim section headers).
+          // Absent key reads as expanded, matching pre-0.7.9 behavior.
+          statsBlockCollapsed: false,
         },
       })
       settingsStore = s ?? {}
@@ -68,6 +73,9 @@ export function createSettings(context: any): SettingsApi {
   const footerSigmaEnabled = (): boolean => settingsStore?.footerSigma === true
   const footerHitEnabled = (): boolean => settingsStore?.footerHit === true
   const sidebarMetricsEnabled = (): boolean => settingsStore?.sidebarMetrics !== false
+  // v0.7.9: true = the Stats header is collapsed (metrics lines hidden);
+  // absent key reads as expanded.
+  const statsBlockCollapsed = (): boolean => settingsStore?.statsBlockCollapsed === true
   const toggleSettingsFlag = (flagKey: string, currentValue: boolean): void => {
     try {
       void updateSettingsStore?.((draft: any) => {
@@ -109,6 +117,7 @@ export function createSettings(context: any): SettingsApi {
     footerSigmaEnabled,
     footerHitEnabled,
     sidebarMetricsEnabled,
+    statsBlockCollapsed,
     toggleSettingsFlag,
     toggleHitScope,
     cycleTotalScope,

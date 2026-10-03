@@ -9,7 +9,7 @@
 | 表面 | 内容 | 默认 | 开关 |
 |---|---|---|---|
 | footer 状态行(`prompt.footer.status`) | `⏱`/`⏳`/`🏁` + `⚡`;可选 `Σ`、`hit`/`hit·s` | ⏱/⚡ 常开,Σ/hit 关 | `/usage-settings` 内 `f`/`h` |
-| 右栏 Stats 块(`sidebar.content`) | 计时/速率行 + `📊 (范围)` + `🎯 (范围)` | 开 | `/usage-settings` 内 `b` |
+| 右栏 Stats 块(`sidebar.content`) | 可收起头部(0.7.9,点击 `▼/▸` 切换)+ 计时/速率行 + `📊 (范围)` + `🎯 (范围)` | 开 | `/usage-settings` 内 `b`(整块);头部点击收起 |
 | 统计面板(`session.panel`) | 当前会话 + 当前窗口 + 本会话累计 + 子代理 + 明细表 | 命令唤起 | `/usage-full` |
 | 设置弹窗 | 五项配置,响应式刷新 | 命令唤起 | `/usage-settings` |
 

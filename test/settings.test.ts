@@ -44,6 +44,19 @@ test("toggleSettingsFlag persists the inverted value through the store", async (
   assert.equal(settings.settingsStore.sidebarMetrics, false)
 })
 
+test("statsBlockCollapsed defaults to expanded and the header click persists the flip", () => {
+  const freshSettings = createSettings({ storage: createMockStorage() })
+  assert.equal(freshSettings.statsBlockCollapsed(), false)
+  const legacySettings = createSettings({
+    storage: createMockStorage({ statsBlockCollapsed: "garbage" }),
+  })
+  assert.equal(legacySettings.statsBlockCollapsed(), false)
+  freshSettings.toggleSettingsFlag("statsBlockCollapsed", freshSettings.statsBlockCollapsed())
+  assert.equal(freshSettings.settingsStore.statsBlockCollapsed, true)
+  freshSettings.toggleSettingsFlag("statsBlockCollapsed", freshSettings.statsBlockCollapsed())
+  assert.equal(freshSettings.settingsStore.statsBlockCollapsed, false)
+})
+
 test("toggleHitScope flips between today and session and persists", () => {
   const settings = createSettings({ storage: createMockStorage() })
   settings.toggleHitScope()

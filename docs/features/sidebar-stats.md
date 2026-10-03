@@ -6,18 +6,18 @@
 
 右栏是宿主侧栏,暴露 `sidebar.content` slot——宿主自己的 Context/MCP 区块(`feature-plugins/sidebar/context.tsx`/`mcp.tsx`)正是经此 slot 挂载。插件以同通道 `append: "sidebar.content"` 追加,落在宿主区块下方。经 v2.0.21 源码取证。
 
-## 内容(0.7.1 起全英文图标行,分行展示)
+## 内容(0.7.1 起全英文图标行,分行展示;0.7.9 起头部可收起)
 
 ```
-Stats
+▼ Stats
 ⏱ 1m 02s
 ⚡ 73 tok/s
 📊 13M (today)
 🎯 96.3% (today)
 ```
-
 | 行 | 说明 |
 |---|---|
+| `▼/▸ Stats` | 头部行,鼠标点击切换收起/展开(0.7.9),同 MCP/OMO-Slim 区块头 |
 | `⏱` / `⏳` / `🏁` | 当前会话实时计时;空闲显示上轮终值(与 footer 同数据同口径) |
 | `⚡` | 实时速率;空闲显示精确速率(或 avg 回退) |
 | `📊 总量 (today\|24h\|7d\|30d)` | 总耗,维度跟随 `/usage-settings` 的 Σ 维度(0.7.7,默认今日) |
@@ -32,3 +32,7 @@ Stats
 ## 开关
 
 `/usage-settings` 内按 `b` 切换(默认开);关闭后整块消失。生命周期纳入插件清理。
+
+## 收起(0.7.9)
+
+点击 `▼/▸ Stats` 头部行切换收起:收起后只保留 `▸ Stats` 头部,指标行隐藏;再点恢复。状态经 `statsBlockCollapsed` 键持久化(缺键 = 展开),重启后保持。实现方式与 OMO-Slim 区块一致:全宽头部行 box 挂 `onMouseUp`(`@opentui/solid` 的 setProp 同一 prop 通道,JSX 写法等价),鼠标事件由 @opentui/core 提供。与 `b` 开关互不影响:`b` 控制整块有无,收起只折叠内容。

@@ -14,6 +14,14 @@
 // (typically switching sessions). All dynamic reads now happen inside a
 // createMemo that the JSX interpolation reads, so every tick and every
 // stats refresh re-renders directly, decoupled from host re-mounts.
+//
+// v0.7.9 collapsible header: the "Stats" title row is now clickable and
+// toggles ▼/▸ like the native MCP / OMO-Slim section headers. Mechanism
+// verified against OMO-Slim's shipped bundle, which attaches mouse
+// handlers to a full-width header box through @opentui/solid's setProp —
+// the same prop pipeline JSX uses, so <box onMouseUp={...}> lands on the
+// core node identically. The collapsed state persists in the settings
+// store (statsBlockCollapsed) and survives restarts.
 import { createMemo } from "solid-js"
 import { fmtNum, format } from "../format"
 import { liveRate } from "../rate-model"
@@ -37,7 +45,13 @@ export function createSidebarMetrics(deps: {
   const { context, now } = deps
   const { starts, lastDurations, lastAvgRates, lastExactRates, rates, backfillLastTurn } =
     deps.sessionMetrics
-  const { sidebarMetricsEnabled, hitScopeEnabled, totalScopeEnabled } = deps.settings
+  const {
+    sidebarMetricsEnabled,
+    statsBlockCollapsed,
+    hitScopeEnabled,
+    totalScopeEnabled,
+    toggleSettingsFlag,
+  } = deps.settings
   const { todayStats, totalFor } = deps.statsSource
   const { calibOf } = deps.calibration
 
@@ -51,74 +65,91 @@ export function createSidebarMetrics(deps: {
     // history yet — replay the last turn from synced records once (guarded,
     // so repeated host re-mounts stay no-ops).
     backfillLastTurn(sessionID)
-    // v0.7.8: every dynamic read (now(), session status, stats signals,
-    // settings signals) lives inside the memo, so the interpolation below
-    // re-renders on each 500ms tick and on every stats refresh. The Maps
-    // (starts/lastDurations/rates) are plain mutable structures — the
-    // always-read `now()` re-evaluates the memo every 500ms and picks up
-    // their changes, matching the original "tick-driven" design.
-    const metricText = createMemo(() => {
+    // v0.7.8/0.7.9: every dynamic read (now(), session status, stats
+    // signals, settings signals, collapsed flag) lives inside the memo, so
+    // the interpolations below re-render on each 500ms tick, on every stats
+    // refresh, and on header clicks. `now()` is read unconditionally — even
+    // while collapsed — so the 500ms tick keeps re-evaluating the memo and a
+    // collapsed<->expanded flip is picked up within 500ms even if the host
+    // storage store turns out not to be reactive.
+    const blockState = createMemo(() => {
       const currentTime = now()
-      const running = context.data?.session?.status?.(sessionID) === "running"
-      const started = starts.get(sessionID)
-      const last = lastDurations.get(sessionID)
-      const metricLines: string[] = []
-      // v0.7.1: narrow column — split time and rate onto separate lines,
-      // English-only labels, and unify the scope suffix in parentheses.
-      if (running && started !== undefined) {
-        metricLines.push(`⏱ ${format(currentTime - started)}`)
-        const rate = rates.get(sessionID)
-        const liveTokPerSec = rate ? liveRate(rate, currentTime) : undefined
-        if (liveTokPerSec !== undefined) {
-          metricLines.push(`⚡ ${Math.round(liveTokPerSec * calibOf(sessionID))} tok/s`)
+      const collapsed = statsBlockCollapsed()
+      let metricText: string | null = null
+      if (!collapsed) {
+        const running = context.data?.session?.status?.(sessionID) === "running"
+        const started = starts.get(sessionID)
+        const last = lastDurations.get(sessionID)
+        const metricLines: string[] = []
+        // v0.7.1: narrow column — split time and rate onto separate lines,
+        // English-only labels, and unify the scope suffix in parentheses.
+        if (running && started !== undefined) {
+          metricLines.push(`⏱ ${format(currentTime - started)}`)
+          const rate = rates.get(sessionID)
+          const liveTokPerSec = rate ? liveRate(rate, currentTime) : undefined
+          if (liveTokPerSec !== undefined) {
+            metricLines.push(`⚡ ${Math.round(liveTokPerSec * calibOf(sessionID))} tok/s`)
+          }
+        } else if (running) {
+          metricLines.push("⏳")
+        } else if (last !== undefined) {
+          metricLines.push(`🏁 ${format(last)}`)
+          const exact = lastExactRates.get(sessionID)
+          const avgRate = lastAvgRates.get(sessionID)
+          if (exact !== undefined) metricLines.push(`⚡ ${exact} tok/s`)
+          else if (avgRate !== undefined) metricLines.push(`⚡ ${avgRate} tok/s avg`)
         }
-      } else if (running) {
-        metricLines.push("⏳")
-      } else if (last !== undefined) {
-        metricLines.push(`🏁 ${format(last)}`)
-        const exact = lastExactRates.get(sessionID)
-        const avgRate = lastAvgRates.get(sessionID)
-        if (exact !== undefined) metricLines.push(`⚡ ${exact} tok/s`)
-        else if (avgRate !== undefined) metricLines.push(`⚡ ${avgRate} tok/s avg`)
-      }
-      const stats = todayStats()
-      const hitScope = hitScopeEnabled()
-      // v0.7.7: the 📊 total follows the persisted scope — today is the
-      // default; rolling windows (24h/7d/30d) are separate read-only queries
-      // fetched by the stats source on demand.
-      const totalScope = totalScopeEnabled()
-      const scopeStats = totalFor(totalScope)
-      if (scopeStats) {
-        const scopeTokens = scopeStats?.tokens
-        const total =
-          (scopeTokens?.input ?? 0) + (scopeTokens?.output ?? 0) + (scopeTokens?.reasoning ?? 0)
-        if (total > 0) metricLines.push(`📊 ${fmtNum(total)} (${totalScope})`)
-      }
-      if (hitScope === "session") {
-        try {
-          const sessionTokens = context.data?.session?.get?.(sessionID)?.tokens
-          const cacheRead = sessionTokens?.cache?.read ?? 0
-          const denominator =
-            (sessionTokens?.input ?? 0) + cacheRead + (sessionTokens?.cache?.write ?? 0)
+        const stats = todayStats()
+        const hitScope = hitScopeEnabled()
+        // v0.7.7: the 📊 total follows the persisted scope — today is the
+        // default; rolling windows (24h/7d/30d) are separate read-only
+        // queries fetched by the stats source on demand.
+        const totalScope = totalScopeEnabled()
+        const scopeStats = totalFor(totalScope)
+        if (scopeStats) {
+          const scopeTokens = scopeStats?.tokens
+          const total =
+            (scopeTokens?.input ?? 0) + (scopeTokens?.output ?? 0) + (scopeTokens?.reasoning ?? 0)
+          if (total > 0) metricLines.push(`📊 ${fmtNum(total)} (${totalScope})`)
+        }
+        if (hitScope === "session") {
+          try {
+            const sessionTokens = context.data?.session?.get?.(sessionID)?.tokens
+            const cacheRead = sessionTokens?.cache?.read ?? 0
+            const denominator =
+              (sessionTokens?.input ?? 0) + cacheRead + (sessionTokens?.cache?.write ?? 0)
+            if (denominator > 0)
+              metricLines.push(`🎯 ${((cacheRead / denominator) * 100).toFixed(1)}% (session)`)
+          } catch {}
+        } else if (stats) {
+          const cacheRead = stats?.tokens?.cache?.read ?? 0
+          const denominator = cacheRead + (stats?.tokens?.input ?? 0)
           if (denominator > 0)
-            metricLines.push(`🎯 ${((cacheRead / denominator) * 100).toFixed(1)}% (session)`)
-        } catch {}
-      } else if (stats) {
-        const cacheRead = stats?.tokens?.cache?.read ?? 0
-        const denominator = cacheRead + (stats?.tokens?.input ?? 0)
-        if (denominator > 0)
-          metricLines.push(`🎯 ${((cacheRead / denominator) * 100).toFixed(1)}% (today)`)
+            metricLines.push(`🎯 ${((cacheRead / denominator) * 100).toFixed(1)}% (today)`)
+        }
+        metricText = metricLines.length > 0 ? metricLines.join("\n") : null
       }
-      return metricLines.length > 0 ? metricLines.join("\n") : null
+      return { collapsed, metricText }
     })
     // Mount-time gate mirrors the pre-0.7.8 "no lines -> hide the whole
-    // block" rule; afterwards the interpolation keeps the text live.
-    if (metricText() === null) return null
+    // block" rule (a collapsed header is always worth showing); afterwards
+    // the interpolations keep the caret and text live.
+    const initialState = blockState()
+    if (!initialState.collapsed && initialState.metricText === null) return null
+    const base = (context.theme as any)?.text?.base
     const muted = context.theme?.text?.muted
     return (
       <box flexDirection="column">
-        <text fg={(context.theme as any)?.text?.base}>Stats</text>
-        <text fg={muted}>{metricText()}</text>
+        {/* v0.7.9: full-width clickable header row — mouse-up toggles the
+            collapsed flag in the durable settings store. */}
+        <box
+          flexDirection="row"
+          width="100%"
+          onMouseUp={() => toggleSettingsFlag("statsBlockCollapsed", blockState().collapsed)}
+        >
+          <text fg={base}>{`${blockState().collapsed ? "▸" : "▼"} Stats`}</text>
+        </box>
+        {blockState().collapsed ? null : <text fg={muted}>{blockState().metricText}</text>}
       </box>
     )
   }
