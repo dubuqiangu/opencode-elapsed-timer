@@ -24,7 +24,10 @@ import { Plugin } from "@opencode/plugin/tui"
 import { createMemo, createSignal } from "solid-js"
 
 function format(ms: number): string {
-  const total = Math.max(0, Math.floor(ms / 1000))
+  const clamped = Math.max(0, ms)
+  // Sub-minute durations get one decimal (matches the native "17.5s" readout).
+  if (clamped < 60_000) return `${(clamped / 1000).toFixed(1)}s`
+  const total = Math.floor(clamped / 1000)
   const minutes = Math.floor(total / 60)
   const seconds = total % 60
   if (minutes < 60) {
@@ -172,6 +175,18 @@ export default Plugin.define({
       ({ sessionID, msgs: new Map(), samples: [], sessionVocab: false })
 
     const dataOf = (event: any): any => event?.data ?? event?.properties ?? event
+
+    // v0.6.5: tolerant timestamp coercion — hosts may deliver message times
+    // as epoch numbers (openapi) or ISO strings; both must feed the exact-rate
+    // math. Returns undefined for anything unusable.
+    const tsOf = (v: any): number | undefined => {
+      if (typeof v === "number" && Number.isFinite(v)) return v
+      if (typeof v === "string") {
+        const parsed = Date.parse(v)
+        if (!Number.isNaN(parsed)) return parsed
+      }
+      return undefined
+    }
 
     const sessionIDOf = (event: any): string | undefined => {
       // The TUI data bus exposes the payload at `event.data`; accept the raw
@@ -797,6 +812,33 @@ export default Plugin.define({
         rates.set(sessionID, newRateState(sessionID))
       }
     })
+    // v0.6.5: exact idle rate from authoritative message records — sum
+    // (output+reasoning) over the turn's assistant messages ÷ sum of their
+    // created→completed spans. Same basis as the native turn stats; replaces
+    // sole dependence on the message.updated event (real-machine reports
+    // show that channel is unreliable, which made the footer fall back to
+    // the whole-wall-clock "avg" and under-report tok/s).
+    const exactRateFromRecords = (sessionID: string, startedMs: number): void => {
+      try {
+        const messages = context.data?.session?.message?.list?.(sessionID) ?? []
+        let toks = 0
+        let genMs = 0
+        for (const m of messages) {
+          if (m?.type !== "assistant") continue
+          const created = tsOf(m?.time?.created)
+          const completed = tsOf(m?.time?.completed)
+          const out = (m?.tokens?.output ?? 0) + (m?.tokens?.reasoning ?? 0)
+          if (created === undefined || completed === undefined || out <= 0) continue
+          if (created < startedMs - 2_000) continue // message from a previous turn
+          toks += out
+          genMs += Math.max(0, completed - created)
+        }
+        if (toks > 0 && genMs >= 500) {
+          lastExactRates.set(sessionID, Math.round(toks / (genMs / 1000)))
+        }
+      } catch {}
+    }
+
     const finishTurn = (event: any) => {
       const sessionID = sessionIDOf(event)
       if (!sessionID) return
@@ -809,6 +851,14 @@ export default Plugin.define({
         if (total > 0 && elapsed > 0) {
           lastAvgRates.set(sessionID, Math.round(total / (elapsed / 1000)))
         }
+        exactRateFromRecords(sessionID, started)
+        // The message record may not be synced yet when execution.succeeded
+        // fires; one delayed recompute catches it (idempotent).
+        setTimeout(() => {
+          try {
+            exactRateFromRecords(sessionID, started)
+          } catch {}
+        }, 1_500)
       }
       starts.delete(sessionID)
       rates.delete(sessionID)
@@ -873,10 +923,14 @@ export default Plugin.define({
       if (info.model) sessionModels.set(sessionID, `${info.model.providerID}/${info.model.id}`)
       // v0.6.2: exact generation rate once the message completes —
       // (output + reasoning) / (completed - created), the same basis the
-      // native per-message statistics use.
+      // native per-message statistics use. v0.6.5: tolerant timestamp
+      // coercion; the authoritative recompute at turn end (finishTurn)
+      // no longer depends on this event firing.
       const t = info.time
-      if (typeof t?.completed === "number" && typeof t?.created === "number") {
-        const dur = (t.completed - t.created) / 1000
+      const created = tsOf(t?.created)
+      const completed = tsOf(t?.completed)
+      if (created !== undefined && completed !== undefined) {
+        const dur = (completed - created) / 1000
         const toks = (info.tokens.output ?? 0) + (info.tokens.reasoning ?? 0)
         if (dur >= 0.5 && toks > 0) lastExactRates.set(sessionID, Math.round(toks / dur))
       }

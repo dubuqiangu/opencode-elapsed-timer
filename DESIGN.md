@@ -386,6 +386,8 @@ context.ui.slot({
 
 **已知限制**:首条消息的实时值仍是未校准估算;极短消息(<20 token)不参与校准;`RateState` 增 `sessionID` 字段。
 
+**0.6.5 空闲精确速率改走权威消息记录**:真机反馈("opencode-bridge"会话)空闲态显示 `63 tok/s avg` 而原生为 `70.5 tok/s`——带 avg 后缀即 `message.updated` 单通道未触发(事件形状/时序不可靠),回退到整轮墙钟 avg(分母含工具时间,必然偏低;实证:63≈70.5×(15.6s 生成时长/17.5s 墙钟))。修复:`execution.{succeeded,failed,interrupted}` 时直接从权威消息记录(`session.message.list`)聚合本轮全部 assistant 消息的 `(output+reasoning)÷Σ(created→completed)`,与原生口径一致且不依赖事件形状;记录未同步时 1.5s 延迟重算兜底(幂等);`message.updated` 路径降级为提前提示并改用容忍式时间戳解析(`tsOf`,兼容 number/ISO string);时长显示对齐原生一位小数(<60s 显示 `17.5s`)。
+
 **0.6.3 精度增强**:
 - **校准持久化**:校准系数按模型(`provider/model`)存入 `context.storage.store`(`usage-meter.calib`,跨重启持久、跨 TUI 实例同步),新会话冷启动即已校准;EMA 初值取持久值,而非 1.0
 - **子代理新鲜度**:面板渲染时对每个子会话触发一次 `session.sync()`(后台子会话未被宿主同步时 tokens 陈旧/为零,曾导致整块被 0.6.1 的零用量门控隐藏),500ms tick 后读到同步值
@@ -419,7 +421,7 @@ context.ui.slot({
 | 全 session 状态列表 | `sidebar.content` slot | 左侧列表:各 session 运行态 + 速率 |
 | 本轮/累计花费(USD) | `tokens` × 模型单价;`context.storage.store()` 持久化 | footer 或面板 |
 | 跑完弹"战报" | `context.ui.dialog.show()` | 本轮 token/时长/花费弹窗 |
-| 完成提示音/通知 | `context.attention.notify()` | 轮次结束时 |
+| ~~完成提示音/通知~~ **已被宿主自带覆盖(0.6.5 核实,无需自研)** | v2.0.21 内置 `internal:notifications` 特性插件:轮结束播放 `done` 音效(子代理 `subagent_done`)、报错 `error`、提问/授权提醒;系统通知仅在窗口失焦时(`blurred`);由 `attention.*` 配置控制(`attention.enabled` 默认 `false`,需用户配置开启) | 不做;如需差异化提醒再用 `context.attention.notify()` |
 | 模型/工具活动指示 | `session.step.started`(model/agent)、`session.tool.*` | footer 或面板 |
 
 ---
@@ -441,3 +443,4 @@ context.ui.slot({
 | 2026-10-03 | 0.6.2 | tok/s 精确化:空闲态改为消息级**精确速率**(`output+reasoning ÷ created→completed`,与原生统计同口径,旧 avg 降为回退);流式估算加**每轮自校准**(会话级 EMA 系数 `精确/估算`,钳位 0.25-4,后续轮次偏差 ~5-10%);根因与实证见 §12C |
 | 2026-10-03 | 0.6.3 | 精度增强:校准系数按模型持久化(`storage.store`,跨会话/重启复用,冷启动即校准);子代理块对每个子会话触发一次性 `session.sync()`(修后台子会话数据陈旧/整块被隐藏);轮数在消息窗截断时标 `N+`;已知限制补 ctx% 模型档位平台限制;修复 adoptExact 变量遮蔽 bug |
 | 2026-10-03 | 0.6.4 | 首次真机验证暴露的运行时修复:stats 客户端方法改走 `client.session.stats`(v2.0.21 `SessionApi` 实际路径,原 `experimental.session.stats` 不存在致 Σ/hit 从未显示)+ `from/to` 改传 number(effect schema 校验);客户端方法缺失改 30s 重试不再一次性判死;`/usage-full` 的 keymap layer 改从 `app` slot 组件作用域注册(原 `setup()` 直接调用抛 `Keymap.Provider is missing` 被吞,命令从未注册);footer 移除 ctx 段(与 tok/s 同级冗余,面板"当前窗口"块保留完整口径),`ctxPercent` 实现保留;根因取证与实证见 §12D |
+| 2026-10-03 | 0.6.5 | tok/s 空闲值真机偏差修复:原生 70.5 vs 插件 63 avg——`message.updated` 精确通道单点不可靠,空闲精确速率改为轮结束时从权威消息记录聚合(`Σ(output+reasoning) ÷ Σ(created→completed)`,原生同口径),1.5s 延迟重算兜底,`tsOf` 容忍式时间戳解析,时长 <60s 显示一位小数对齐原生;§13 核实宿主已内置完成通知(`internal:notifications` + `attention` 配置),"完成提示音"自研项撤销 |
