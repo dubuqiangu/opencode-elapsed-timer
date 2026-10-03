@@ -1,101 +1,53 @@
 # opencode-usage-meter
 
-OpenCode V2 TUI 插件:在输入框下方的状态行(`prompt.footer.status`)实时显示当前会话的等待时间、生成速率(tok/s)与用量指标。
+OpenCode V2 TUI 用量仪表盘插件:footer 实时等待计时与生成速率(tok/s)、右栏 Stats 指标块、`/usage-full` 统计面板、`/usage-settings` 设置。
 
-- **运行中**:`⏱ 12.3s   ⚡ 42 tok/s`(0.7.3 起状态全图标化:`⏱` 计时、`⏳` 运行中无起点、`🏁` 上轮;0.7.0 起默认仅 ⏱/⚡ 两段) — 计时每 500ms 跳动;速率基于 10s 采样滑动窗口的字符估算,并用每轮结束的精确 token 做持续校准(EMA,按模型跨会话持久化,收敛后偏差 ~5-10%);流式停顿超过 4s(工具调用间隙)自动隐藏
-- **空闲**:`🏁 17.5s   ⚡ 70 tok/s`(0.7.2 起终点旗图标替代 `✓ last` 文案) — 速率与耗时均为轮结束时的**精确值**(消息级 `created→completed` 口径,一位小数对齐原生);无精确值时回退启发式 avg(标注 avg)
-- **可选 footer 段**(默认关,`/usage-settings` 开启):`Σ 1.5M`(今日 token 总耗,60s 周期 + 每轮结束 1.5s 防抖刷新,后台会话消耗也计入)、`hit 96.4%`(今日缓存命中率 `cache.read ÷ (cache.read + input)`,一位小数;维度可切当前会话严格口径,显示为 `hit·s`)
-- **右栏指标块**(0.7.0,默认开):会话右栏(Context/MCP 下方)追加 `Stats` 区块(0.7.1 起全英文、图标行)——当前会话实时 ⏱/⚡ 分行展示(空闲显示 🏁 + 精确速率)+ `📊 总量 (today)` + `🎯 命中率 (today|session)`(维度跟随设置);经 `sidebar.content` slot 与宿主 Context/MCP 区块同通道,可在 `/usage-settings` 中关闭
-- **上下文窗口占用不进 footer**:为避免与 tok/s 同级冗余(0.6.4 起移除),完整口径在 `/usage-full` 面板的"当前窗口"块——in/out/reasoning/cache 分项 + 占用% + ≥80% 压缩预警(`▲ 接近压缩阈值`),与原生侧栏面板同源
-- **`/usage-full` 命令**(同时进命令面板):**开关式侧边栏统计面板**(`session.panel` 贡献)——面板头部为当前会话实时读数(计时/tok/s/今日 Σ,随 500ms 时钟跳动),以及**当前窗口**(最后一次请求的 in/out/reasoning/cache 分项 + 占用% 与压缩预警)、**本会话累计**(轮数/token 过流/会话级命中率 `cache.read ÷ (input+read+write)`/费用)、**子代理**(委派子会话树递归归总 + 会话与子代理合计);下方为今日按模型明细、今日合计(含缓存命中率)、近 7 日 steps 趋势、累计总量(含命中率)、累计 Top 模型;再按一次 `/usage-full` 或 `Esc` 收起,面板聚焦时按 `f` 全屏展开(窄终端下宿主自动全屏);无侧边栏时自动降级为普通弹窗——会话内的降级弹窗同样展示当前窗口/本会话/子代理三块
-- **`/usage-settings` 命令**(0.6.7 起,同时进命令面板):**用量设置弹窗**(可扩展,四项)——① **hit 维度**(`d` 切换):`今日汇总`(全 session 日级 `read ÷ (read+input)`)⇄ `当前会话`(严格口径 `read ÷ (input+read+write)`);② **footer Σ 段**(`f`,0.7.0 起默认关);③ **footer hit 段**(`h`,默认关);④ **右栏指标块**(`b`,默认开)。全部持久化(storage),弹窗内状态响应式刷新;另有命令面板"切换 hit 维度"直切命令兜底
+```
+运行中   ⏱ 1m 02s   ⚡ 87 tok/s
+空闲     🏁 17.5s    ⚡ 70 tok/s
+右栏     Stats ─ ⏱/⚡/📊 总量 (today)/🎯 命中率
+```
 
-Token 消耗统计基于服务端原生聚合 API(`/api/experimental/session/stats`),跨全部会话(含无 TUI 的 headless 会话与子代理),插件零采集、零存储,服务重启不丢数据。
+- **零采集、零存储**:只读消费服务端原生聚合 API(`/api/experimental/session/stats`)与已同步 TUI 状态,数据与宿主自带统计同口径,跨全部会话(含 headless 与子代理)
+- **静默降级**:API 不可用时指标隐藏,不阻塞计时/速率主功能
+- **状态全图标化**:⏱ 等待计时 · ⏳ 运行中无起点 · 🏁 上轮终值 · ⚡ 速率 · 📊 总量 · 🎯 命中率
 
-## 一键安装(OpenCode ≥ V2)
-
-任意目录执行一条命令,克隆、依赖安装、注册全部自动完成:
+## 快速开始
 
 ```sh
 opencode plugin add github:dubuqiangu/opencode-usage-meter
 ```
 
-重启 opencode(或 `opencode service restart` 后重开 TUI)即可生效。
+重启 opencode,任意会话发一条消息,状态行即出现 `⏱ … ⚡ … tok/s`。
 
-## 更新
+更新:`opencode plugin update github:dubuqiangu/opencode-usage-meter`(**更新后必须完整重启 TUI**,`/reload` 不会重载插件)。
 
-```sh
-opencode plugin update github:dubuqiangu/opencode-usage-meter
-```
+完整安装/更新/验证/卸载说明 → [docs/guides/install.md](docs/guides/install.md)
 
-(也可用 `opencode plugin list` 查看当前已安装版本。)重启后生效。
+## 功能一览
 
-### 备选安装方式
+| 功能 | 入口 | 说明 |
+|---|---|---|
+| footer 状态行 | 常驻 | 实时 ⏱/⚡;Σ/hit 段默认关,`/usage-settings` 开启 → [footer.md](docs/features/footer.md) |
+| 右栏 Stats 块 | 常驻(可关) | 与宿主 Context/MCP 区块同通道,分行图标行 → [sidebar-stats.md](docs/features/sidebar-stats.md) |
+| 统计面板 | `/usage-full` | 当前窗口/本会话累计/子代理/日与累计明细 → [usage-panel.md](docs/features/usage-panel.md) |
+| 设置弹窗 | `/usage-settings` | hit 维度、footer 段、右栏块,持久化 → [settings.md](docs/features/settings.md) |
 
-**克隆到全局插件目录**(OpenCode 自动发现,无需改配置):
+## 文档
 
-```sh
-git clone https://github.com/dubuqiangu/opencode-usage-meter.git ~/.config/opencode/plugins/usage-meter
-npm install ~/.config/opencode/plugins/usage-meter
-```
+全部文档在 [docs/](docs/README.md) 下分类组织:
 
-**或在配置中指定路径** — `~/.config/opencode/opencode.json`:
+- **使用**:安装指南 + 四个功能页
+- **架构**:总体架构、事件模型、计量与速率算法、统计口径、运行时取证、模块结构
+- **决策**:已知限制、未来扩展/未实现记录、变更记录
 
-```jsonc
-{
-  "$schema": "https://opencode.ai/config.json",
-  "plugins": ["file://<本仓库的绝对路径>"]
-}
-```
+设计文档原 DESIGN.md 已拆分迁移至 docs/(DESIGN.md 保留为指针);交互顺序图:[docs/interaction-sequence.html](docs/interaction-sequence.html)。
 
-## 验证
+## 开发
 
-1. 重启 opencode(或 `opencode service restart` 后重开 TUI)
-2. 任意会话里发一条消息
-3. 状态行出现 `⏱ …` 跳动与 `⚡ … tok/s` 流速;跑完变 `🏁 …   ⚡ … tok/s`(或 avg 回退)
-
-若状态行无显示:`~/.local/share/opencode/log/opencode.log` 过滤 `role=cli` 查插件加载错误。
-
-## 卸载
-
-```sh
-opencode plugin remove github:dubuqiangu/opencode-usage-meter
-```
-
-或删除 `~/.config/opencode/plugins/usage-meter` 后重启。
-
-## 工作原理
-
-- TUI 插件经 `@opencode/plugin/tui`(OpenCode 运行时解析,无需构建);入口为 `Plugin.define({ id, setup })`,`.tsx` + `/** @jsxImportSource @opentui/solid */` pragma
-- **计时**:订阅 `session.execution.started` / `succeeded` / `failed` / `interrupted`;漏事件时用 `session.step.started` 的 `started` 时间戳兜底
-- **tok/s 实时速率**:订阅 `session.text.delta` / `session.reasoning.delta` / `session.tool.input.delta`,按字符启发式估算 token(CJK ≈ 1 token/字,其余 ≈ 4 字符/token),样本进入 10s 滑动窗口计算 Δtoken/Δt
-- **精确校准**:`session.step.ended` / `failed` 携带精确 `tokens.output`,按 `msgTotal = exact + max(0, est − refEst)` 增量补偿,不丢不重
-- **会话隔离**:全部状态按 `sessionID` 分桶,子代理会话互不干扰;旧 `message.*` 事件族保留兜底并带防双计锁
-- **当前会话窗口/累计(0.6)**:只读已同步的 TUI 状态,零服务端调用——`session.message.list` 取最后一条 assistant 消息算窗口占用(÷ `location.model.list` 匹配模型的 `limit.context`,与原生侧栏面板同源同数);`session.get` 的 `session.tokens`/`cost` 权威聚合出本会话累计(免疫长会话消息窗截断);`session.list` 按 `parentID` BFS 归总子代理委派树(上限 200)
-- 卸载时清理 interval、slot 与全部订阅
-
-### 代码结构(0.7.2 起模块化,入口只做组装)
-
-```
-src/
-  tui.tsx            入口:Plugin.define + 工厂装配 + 事件/slot/命令注册 + 清理
-  format.ts          纯格式化(format/fmtNum/fmtUSD)与 token 估算
-  rate-model.ts      速率数学(滑动窗口/精确采纳)+ 事件访问器(纯函数)
-  calibration.ts     每模型持久化校准(storage store + EMA 学习)
-  settings.ts        /usage-settings 持久化设置 + 归一读取器/开关
-  stats-source.ts    日级统计拉取/防抖刷新/跨零点/重试
-  session-metrics.ts 每会话运行时状态 + session.*/message.* 事件处理
-  panel-content.ts   /usage-full 面板文本构建(窗口/本会话/子代理/明细)
-  components/
-    footer-status.tsx     prompt.footer.status 状态行组件
-    sidebar-metrics.tsx   右栏 Stats 块组件
-    stats-panel.tsx       面板/dialog 组件 + /usage-full 命令
-    settings-dialog.tsx   /usage-settings 弹窗组件
-```
-
-拆分为纯结构调整,行为零变化;单文件超过 ~400 行或职责混杂即拆,改一处功能只碰一个文件。
-
-详细设计文档:[DESIGN.md](DESIGN.md);交互顺序图:[docs/interaction-sequence.html](docs/interaction-sequence.html)
+- 源码经 OpenCode 运行时解析,无需构建;改动后 esbuild 语法校验(命令见 [docs/architecture/overview.md](docs/architecture/overview.md))
+- 单元测试:`npm test`(test/ 目录,纯函数与 factory 层)
+- 模块结构(0.7.2 起 12 模块)→ [docs/architecture/module-layout.md](docs/architecture/module-layout.md)
 
 ## 许可
 

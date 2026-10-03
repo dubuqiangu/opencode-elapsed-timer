@@ -1,7 +1,10 @@
 {
   "name": "opencode-usage-meter",
-  "version": "0.7.3",
+  "version": "0.7.4",
   "type": "module",
+  "scripts": {
+    "test": "node --import ./test/test-loader.mjs --test"
+  },
   "description": "OpenCode V2 TUI plugin: usage meter — live elapsed-time, tok/s throughput, daily token usage, and cache hit rate in the prompt footer, plus /usage-full stats panel",
   "exports": {
     ".": "./src/index.ts",
