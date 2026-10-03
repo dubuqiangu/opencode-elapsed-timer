@@ -248,9 +248,9 @@ export default Plugin.define({
     // --- Daily usage stats (server-native SessionStats aggregation) -------
     // Read-only queries against GET /api/experimental/session/stats.
     // The server aggregates every session (TUI, headless, subagents); the
-    // plugin only renders. `from`/`to` are epoch-millisecond strings.
+    // plugin only renders. `from`/`to` are epoch milliseconds (SDK `number`).
     const [todayStats, setTodayStats] = createSignal<any>(undefined)
-    let statsFailed = false // one-shot: stop retrying until next day / restart
+    let statsFailed = false // reserved: hard-fail gate (reset at day rollover); missing client method now retries on a timer
     let statsBusy = false
     let statsTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -259,9 +259,19 @@ export default Plugin.define({
       timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
     } catch {}
 
+    let statsMethodMissingLogged = false
+
     const statsCall = (): ((input: any) => Promise<any>) | undefined => {
-      const call = (context.client as any)?.experimental?.session?.stats
-      return typeof call === "function" ? call : undefined
+      // v0.6.4 runtime fix: the v2.0.x effect client namespaces stats under
+      // `session` (SessionApi.stats, verified against v2.0.21
+      // packages/client/src/effect/api/api.ts) — the previous
+      // `experimental.session.stats` path does not exist there, which silently
+      // killed Σ/hit. Newer hosts may expose it under `experimental.session`
+      // (the openapi operationId); try both, whatever is callable.
+      const client = context.client as any
+      const candidates = [client?.session?.stats, client?.experimental?.session?.stats]
+      for (const c of candidates) if (typeof c === "function") return c
+      return undefined
     }
 
     const localMidnight = (): number => {
@@ -276,13 +286,26 @@ export default Plugin.define({
       if (statsBusy || statsFailed) return
       const call = statsCall()
       if (!call) {
-        statsFailed = true
-        console.error("[usage-meter] session stats client method unavailable")
+        // v0.6.4: the client may simply not be ready when setup runs; retry on
+        // a timer instead of one-shot failing until the next day / restart.
+        if (!statsMethodMissingLogged) {
+          statsMethodMissingLogged = true
+          console.error("[usage-meter] session stats client method unavailable (will retry)")
+        }
+        if (statsTimer === undefined) {
+          statsTimer = setTimeout(() => {
+            statsTimer = undefined
+            void fetchToday()
+          }, 30_000)
+        }
         return
       }
       statsBusy = true
       try {
-        const input: any = { from: String(localMidnight()), to: String(Date.now()) }
+        // v0.6.4: pass numbers — v2.0.21 SDK SessionStatsInput.from/to are
+        // `number` and the effect client validates input schemas at runtime
+        // (the query wire format is handled by the client itself).
+        const input: any = { from: localMidnight(), to: Date.now() }
         if (timezone) input.timezone = timezone
         const data = unwrap(await call(input))
         if (data?.tokens) setTodayStats(data)
@@ -349,7 +372,10 @@ export default Plugin.define({
       return undefined
     }
 
-    // Window occupancy for the footer: percent + warning flag (>= 80%).
+    // Window occupancy: percent + warning flag (>= 80%).
+    // v0.6.4: retained implementation — no longer rendered in the footer
+    // (moved out as redundant next to tok/s); reserved for a future surface
+    // and documents the formula the panel's 当前窗口 block mirrors.
     const ctxPercent = (sessionID: string): { pct: number; warn: boolean } | undefined => {
       const m = lastAssistant(sessionID)
       if (!m) return undefined
@@ -632,7 +658,8 @@ export default Plugin.define({
       try {
         const baseInput: any = timezone ? { timezone } : {}
         const [todayRes, allRes] = await Promise.all([
-          call({ ...baseInput, from: String(localMidnight()), to: String(Date.now()) }),
+          // v0.6.4: numbers, not strings — the SDK input schema is `number`.
+          call({ ...baseInput, from: localMidnight(), to: Date.now() }),
           call(baseInput),
         ])
         const today = unwrap(todayRes)
@@ -713,25 +740,44 @@ export default Plugin.define({
     }
 
     // /usage-full + palette command "用量统计".
+    // v0.6.4 runtime fix: a keymap layer must be created from a component
+    // scope — calling it directly from setup() throws "Keymap.Provider is
+    // missing" on the host, which silently killed the /usage-full command
+    // in 0.6.x. Register from an `app` slot render instead (runs once inside
+    // the component tree).
     let layerDispose: any
+    let unregisterAppSlot: any
     try {
-      layerDispose = (context.keymap as any)?.layer?.(() => ({
-        mode: "global",
-        commands: [
-          {
-            id: "usage-meter.usage",
-            title: "用量统计(面板开关)",
-            group: "usage-meter",
-            palette: true,
-            slash: { name: "usage-full" },
-            run: () => {
-              void runTokensCommand()
-            },
-          },
-        ],
-      }))
+      unregisterAppSlot = context.ui.slot({
+        append: "app",
+        render: () => {
+          if (layerDispose === undefined) {
+            try {
+              layerDispose = (context.keymap as any)?.layer?.(() => ({
+                mode: "global",
+                commands: [
+                  {
+                    id: "usage-meter.usage",
+                    title: "用量统计(面板开关)",
+                    group: "usage-meter",
+                    palette: true,
+                    slash: { name: "usage-full" },
+                    run: () => {
+                      void runTokensCommand()
+                    },
+                  },
+                ],
+              }))
+            } catch (error) {
+              layerDispose = null
+              console.error("[usage-meter] keymap layer failed:", error)
+            }
+          }
+          return null
+        },
+      })
     } catch (error) {
-      console.error("[usage-meter] keymap layer failed:", error)
+      console.error("[usage-meter] app slot failed:", error)
     }
 
     // --- Session lifecycle events ------------------------------------------
@@ -887,26 +933,12 @@ export default Plugin.define({
             if (denom > 0) parts.push(`hit ${Math.round((read / denom) * 100)}%`)
           }
         }
-        // Current context-window occupancy (last request vs model limit),
-        // mirroring the native sidebar panel; warn marker from 80%.
-        const ctx = ctxPercent(sessionID)
-        if (parts.length === 0 && !ctx) return null
-
-        const body = parts.join("   ")
+        // v0.6.4: the ctx readout moved out of the footer (redundant at the
+        // same level as tok/s; the /usage-full panel keeps the full 当前窗口
+        // block). ctxPercent() stays implemented above for a future surface.
+        if (parts.length === 0) return null
         const muted = context.theme?.text?.muted
-        if (!ctx) return <text fg={muted}>{body}</text>
-        // Sibling <text> elements inside a row <box> (never nested <text> in
-        // <text>) so the warning segment can carry its own color safely.
-        const ctxPart = `ctx ${ctx.pct}%${ctx.warn ? " ▲" : ""}`
-        const ctxColor = ctx.warn
-          ? context.theme?.text?.feedback?.warning?.base
-          : muted
-        return (
-          <box flexDirection="row">
-            {body ? <text fg={muted}>{`${body}   `}</text> : null}
-            <text fg={ctxColor}>{ctxPart}</text>
-          </box>
-        )
+        return <text fg={muted}>{parts.join("   ")}</text>
       },
     })
 
@@ -914,6 +946,11 @@ export default Plugin.define({
       clearInterval(timer)
       if (statsTimer !== undefined) clearTimeout(statsTimer)
       if (typeof unregister === "function") unregister()
+      if (typeof unregisterAppSlot === "function") {
+        try {
+          unregisterAppSlot()
+        } catch {}
+      }
       if (typeof unregisterPanel === "function") {
         try {
           unregisterPanel()

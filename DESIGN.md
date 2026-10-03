@@ -326,7 +326,7 @@ context.ui.slot({
 
 ### 12A.2 展示与刷新
 
-- **footer**:追加 `Σ <今日总量>`,与 tok/s 同行同级。口径 = 今日 `input+output+reasoning`(cache 读写成本结构不同,不计入 Σ,弹窗中单列)。今日为 0 或 API 不可用时隐藏。0.4.2 起 Σ 旁追加 `hit <nn>%` 今日缓存命中率(口径 `cache.read ÷ (cache.read + input)`,分母 0 隐藏)。0.6.0 起再追加 `ctx <nn>%` 当前窗口占用(占用 ≥80% 时为 `ctx <nn>% ▲` 并用警示色,见 §12B)。
+- **footer**:追加 `Σ <今日总量>`,与 tok/s 同行同级。口径 = 今日 `input+output+reasoning`(cache 读写成本结构不同,不计入 Σ,弹窗中单列)。今日为 0 或 API 不可用时隐藏。0.4.2 起 Σ 旁追加 `hit <nn>%` 今日缓存命中率(口径 `cache.read ÷ (cache.read + input)`,分母 0 隐藏)。0.6.0 起曾追加 `ctx <nn>%` 当前窗口占用,**0.6.4 起从 footer 移除**(与 tok/s 同级冗余;窗口口径完整保留在面板"当前窗口"块,见 §12B/§12D)。
 - **`/usage-full` 命令**(0.5.0 前为 `/tokens`,别名 `/tok`、`/usage` 已移除;同时进命令面板):今日按模型明细(≤12 行,按输出排序)+ 今日合计 + 近 7 日 steps 趋势(取自全量查询的 `activity` 尾部 7 条)+ 累计总量 + 累计 Top 5 模型。`cost` 为 0(模型未配价)时整列隐藏。0.4.0 起升级为**开关式 `session.panel` 侧边面板**(头部含当前会话实时计时/tok/s/今日 Σ,0.6.0 起头部另有"当前窗口/本会话累计/子代理"三块,见 §12B,`createMemo` 响应式刷新;`/usage-full` 或 `Esc` 收起,`f` 全屏,面板打开期间每次 step 结束自动刷新今日+全量明细;会话外降级为普通弹窗)。
 - **刷新策略**:插件加载时取一次;`session.step.ended/failed` 后 1.5s 防抖刷新;弹窗打开时双查询(今日+全量)并回写 footer 信号;500ms tick 检测跨零点自动重取并复位失败标记。
 - **降级**:client 方法缺失或请求失败 → Σ 静默隐藏、弹窗显示错误文案,`console.error` 记录一次;不阻塞计时/tok/s 主功能。
@@ -347,8 +347,8 @@ context.ui.slot({
 - **会话累计**:`context.data.session.get(sessionID)` 的 `session.tokens` / `session.cost` 权威聚合(TUI 消息窗只保留近期消息时依然全量);轮数从 message.list 统计 assistant 条数(截断时偏小,仅展示)
 - **子代理**:`context.data.session.list()` 按 `parentID` BFS 遍历委派树(上限 200 防病态树),子会话自带 `tokens`/`cost`,可递归归总
 
-**渲染细节(0.6.1 审视定稿)**:
-- footer 的 ctx 段用 `box(flexDirection: row)` 内**兄弟 `<text>`** 分色渲染,不嵌套 `<text>` 于 `<text>`(规避 OpenTUI 未验证的嵌套行为,box-row 为参考实现同款用法)
+**渲染细节(0.6.1 审视定稿;0.6.4 修订)**:
+- ~~footer 的 ctx 段用 `box(flexDirection: row)` 内**兄弟 `<text>`** 分色渲染~~(0.6.4:ctx 段已从 footer 撤下,该分色渲染模式保留为已验证做法;`ctxPercent` 实现保留备未来界面用)
 - 降级弹窗传入当前 sessionID(取自 `router.current()`):会话内的弹窗兜底同样展示"当前窗口/本会话/子代理"三块;会话外则仅显示日/累计统计
 - 子代理块在全部子会话尚未上报任何用量(tokens 全零或缺失)时整体隐藏,防零值噪音行
 
@@ -358,11 +358,11 @@ context.ui.slot({
 |---|---|---|---|
 | 今日 Σ | 当日全部会话 | 不计入 | footer / 面板头部 |
 | 会话累计 | 本会话(压缩后不重置) | 计入 | 面板"本会话累计" |
-| 窗口占用 | 最后一次请求 | 计入(缓存命中仍占窗口) | footer / 面板"当前窗口" |
+| 窗口占用 | 最后一次请求 | 计入(缓存命中仍占窗口) | 面板"当前窗口"(0.6.4 起 footer 不再显示) |
 
 **命中率口径**:会话级用 `cache.read ÷ (input + cache.read + cache.write)`(与原生面板/参考实现一致,分母含 cache write,更严格);footer 日级维持 `read ÷ (read + input)`(日级 stats API 口径)。两口径并存属有意为之。
 
-**80% 压缩预警**:窗口占用 ≥80% 时,footer ctx 段追加 `▲` 并用 `theme.text.feedback.warning.base` 警示色;面板占用行追加"▲ 接近压缩阈值"。阈值为常量 `CTX_WARN_PCT`,未来可配置化。
+**80% 压缩预警**:窗口占用 ≥80% 时,面板占用行追加"▲ 接近压缩阈值"。阈值为常量 `CTX_WARN_PCT`,未来可配置化。(0.6.4 起 footer 不再有 ctx 段,预警仅在面板出现。)
 
 **已知限制**:
 - 压缩后窗口占用重置、会话累计继续增长——属正常语义,非 bug
@@ -392,6 +392,20 @@ context.ui.slot({
 - **轮数截断标注**:消息 token 合计低于 `session.tokens` 权威聚合(容差 10)时,轮数显示 `N+`(消息窗截断时轮数是下界)
 - **ctx% 档位限制(平台级,已知即可)**:模型 limit 按 `providerID+model.id` 从模型列表匹配,同 id 多 context-tier 变体时可能取错档位;服务端未暴露 per-request 实际档位,原生面板精度等同,不做修
 - 精度修复自查:修掉 adoptExact 内层变量遮蔽 bug(模型键与消息键同名,曾会把消息写错桶)
+
+### 12D. 0.6.4 运行时修复(首次真机验证暴露)
+
+**动机**:0.6.3 安装后用户首次真机验证,暴露两个自 0.3.0/0.4.0 起潜伏的运行时 bug——Σ/hit 从未显示、`/usage-full` 命令从未注册(此前所有版本均停留在"待重启验证",实为从未通过)。
+
+**根因与实证**(逐层取证 v2.0.21 源码 `packages/client/src/effect/api/api.ts`):
+- **stats 客户端方法路径错误**:openapi operationId 为 `experimental.session.stats`,但 v2.0.x effect 客户端把 `stats` 挂在 **`SessionApi`**(`context.client.session.stats`)之下;`client.experimental.session.stats` 在 2.0.21 **不存在** → `statsFailed=true` 一次性永久失败 → Σ/hit 从未显示。修复:候选路径数组 `[client.session.stats, client.experimental.session.stats]` 依次探测,兼容未来迁移回 experimental 命名空间的宿主
+- **入参类型错误**:自 0.3.0 起 `from/to` 传 `String(epoch_ms)`;v2.0.21 SDK `SessionStatsInput.from/to` 为 `number` 且 effect 客户端运行时校验 schema——字符串可能被拒。修复:改传 `number`
+- **缺失方法不再一次性判死**:客户端未就绪时改为 30s 定时重试(仅日志一次),`statsFailed` 保留为硬失败闸门(跨零点复位),但缺失方法场景不再触发
+- **keymap layer 作用域错误**:`context.keymap.layer()` 在 `setup()` 直接调用会抛 `Keymap.Provider is missing`(keymap 层必须从组件作用域创建;0.6.x 的 try/catch 把异常吞掉,命令静默未注册)。修复:改经 `app` slot render(组件作用域)内注册,一次性 guard(`layerDispose === undefined`),失败置 `null` 防重渲染重复注册;app slot 句柄纳入生命周期清理
+
+**footer ctx 段移除(产品决策)**:ctx 与 tok/s 同级展示冗余,0.6.4 起从 footer 撤下;`ctxPercent` 实现保留(已注释标记),窗口口径完整保留在 `/usage-full` 面板"当前窗口"块(含 ≥80% 压缩预警)。
+
+**验证状态**:待 0.6.4 真机重启验证——① footer 出现 `Σ …`/`hit …`;② `/usage-full` 命令可发现可执行;③ footer 不再出现 ctx 段、面板"当前窗口"块完整。
 
 ---
 
@@ -426,3 +440,4 @@ context.ui.slot({
 | 2026-10-03 | 0.6.1 | 代码审视修复:footer ctx 段改用 box(row) 兄弟 `<text>` 分色(不嵌套 text 于 text,规避渲染兼容风险);降级弹窗传入当前 sessionID,会话内弹窗兜底同样展示当前窗口/本会话/子代理三块;子代理块在全部子会话零用量时隐藏(防零值噪音);README 工作原理补 0.6 数据源说明;§12B 增"渲染细节"节 |
 | 2026-10-03 | 0.6.2 | tok/s 精确化:空闲态改为消息级**精确速率**(`output+reasoning ÷ created→completed`,与原生统计同口径,旧 avg 降为回退);流式估算加**每轮自校准**(会话级 EMA 系数 `精确/估算`,钳位 0.25-4,后续轮次偏差 ~5-10%);根因与实证见 §12C |
 | 2026-10-03 | 0.6.3 | 精度增强:校准系数按模型持久化(`storage.store`,跨会话/重启复用,冷启动即校准);子代理块对每个子会话触发一次性 `session.sync()`(修后台子会话数据陈旧/整块被隐藏);轮数在消息窗截断时标 `N+`;已知限制补 ctx% 模型档位平台限制;修复 adoptExact 变量遮蔽 bug |
+| 2026-10-03 | 0.6.4 | 首次真机验证暴露的运行时修复:stats 客户端方法改走 `client.session.stats`(v2.0.21 `SessionApi` 实际路径,原 `experimental.session.stats` 不存在致 Σ/hit 从未显示)+ `from/to` 改传 number(effect schema 校验);客户端方法缺失改 30s 重试不再一次性判死;`/usage-full` 的 keymap layer 改从 `app` slot 组件作用域注册(原 `setup()` 直接调用抛 `Keymap.Provider is missing` 被吞,命令从未注册);footer 移除 ctx 段(与 tok/s 同级冗余,面板"当前窗口"块保留完整口径),`ctxPercent` 实现保留;根因取证与实证见 §12D |
