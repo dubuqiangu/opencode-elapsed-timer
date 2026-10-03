@@ -151,7 +151,7 @@ export default Plugin.define({
     } catch {}
     // v0.6.6: user-facing footer dimension settings (durable, synced across
     // TUI instances). The user host (2.0.21) has no plugin-options config
-    // channel yet, so settings persist here and toggle via /usage-dim.
+    // channel yet, so settings persist here and toggle via /usage-settings.
     let settingsStore: any = {}
     let updateSettingsStore: ((fn: (draft: any) => void) => Promise<void>) | undefined
     try {
@@ -1071,7 +1071,7 @@ export default Plugin.define({
         }
         // Today's total usage across all sessions (server aggregate), same row
         // as the tok/s readout. Hidden when unavailable or zero. The cache hit
-        // rate rides along with it — scope is configurable via /usage-dim:
+        // rate rides along with it — scope is configurable via /usage-settings:
         // "today" (default: all-session daily aggregate, read/(read+input))
         // or "session" (current session, strict read/(input+read+write),
         // shown as "hit·s"). Reads are reactive: toggling updates at once.
