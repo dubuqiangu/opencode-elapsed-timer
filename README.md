@@ -2,11 +2,13 @@
 
 OpenCode V2 TUI 插件:在输入框下方的状态行(`prompt.footer.status`)实时显示当前会话的等待时间、生成速率(tok/s)与用量指标。
 
-- **运行中**:`⏱ waited 12.3s   ⚡ 42 tok/s   Σ 1.5M   hit 93%` — 计时每 500ms 跳动;速率基于 10s 采样滑动窗口的字符估算,并用每轮结束的精确 token 做持续校准(EMA,按模型跨会话持久化,收敛后偏差 ~5-10%);流式停顿超过 4s(工具调用间隙)自动隐藏;Σ 为今日 token 总耗,hit 为今日缓存命中率(`cache.read ÷ (cache.read + input)`)
-- **空闲**:`✓ last 8.4s   ⚡ 48.9 tok/s   Σ 1.5M   hit 93%` — 速率为**精确值**(`tokens.output+reasoning ÷ 消息 created→completed 时长`,与 opencode 自带统计同口径);无精确值时回退启发式 avg(标注 avg)
+- **运行中**:`⏱ waited 12.3s   ⚡ 42 tok/s`(0.7.0 起默认仅此两段) — 计时每 500ms 跳动;速率基于 10s 采样滑动窗口的字符估算,并用每轮结束的精确 token 做持续校准(EMA,按模型跨会话持久化,收敛后偏差 ~5-10%);流式停顿超过 4s(工具调用间隙)自动隐藏
+- **空闲**:`✓ last 17.5s   ⚡ 70 tok/s` — 速率与耗时均为轮结束时的**精确值**(消息级 `created→completed` 口径,一位小数对齐原生);无精确值时回退启发式 avg(标注 avg)
+- **可选 footer 段**(默认关,`/usage-settings` 开启):`Σ 1.5M`(今日 token 总耗,60s 周期 + 每轮结束 1.5s 防抖刷新,后台会话消耗也计入)、`hit 96.4%`(今日缓存命中率 `cache.read ÷ (cache.read + input)`,一位小数;维度可切当前会话严格口径,显示为 `hit·s`)
+- **右栏指标块**(0.7.0,默认开):会话右栏(Context/MCP 下方)追加"用量"区块——当前会话实时 ⏱/⚡(空闲显示 last + 精确速率)+ 今日 Σ + hit(维度跟随设置);经 `sidebar.content` slot 与宿主 Context/MCP 区块同通道,可在 `/usage-settings` 中关闭
 - **上下文窗口占用不进 footer**:为避免与 tok/s 同级冗余(0.6.4 起移除),完整口径在 `/usage-full` 面板的"当前窗口"块——in/out/reasoning/cache 分项 + 占用% + ≥80% 压缩预警(`▲ 接近压缩阈值`),与原生侧栏面板同源
 - **`/usage-full` 命令**(同时进命令面板):**开关式侧边栏统计面板**(`session.panel` 贡献)——面板头部为当前会话实时读数(计时/tok/s/今日 Σ,随 500ms 时钟跳动),以及**当前窗口**(最后一次请求的 in/out/reasoning/cache 分项 + 占用% 与压缩预警)、**本会话累计**(轮数/token 过流/会话级命中率 `cache.read ÷ (input+read+write)`/费用)、**子代理**(委派子会话树递归归总 + 会话与子代理合计);下方为今日按模型明细、今日合计(含缓存命中率)、近 7 日 steps 趋势、累计总量(含命中率)、累计 Top 模型;再按一次 `/usage-full` 或 `Esc` 收起,面板聚焦时按 `f` 全屏展开(窄终端下宿主自动全屏);无侧边栏时自动降级为普通弹窗——会话内的降级弹窗同样展示当前窗口/本会话/子代理三块
-- **`/usage-settings` 命令**(0.6.7,同时进命令面板):**用量设置弹窗**(可扩展,当前一项)——**footer hit 维度**:`今日汇总`(默认,`hit nn%`,全 session 日级 `read ÷ (read+input)`)⇄ `当前会话`(`hit·s nn%`,单会话严格口径 `read ÷ (input+read+write)`);弹窗内按 `d` 切换,状态响应式刷新,选择自动持久化(storage);另有命令面板"切换 hit 维度"直切命令兜底(防个别宿主弹窗内 keybind 注册失败);面板始终完整展示两个维度,不受影响
+- **`/usage-settings` 命令**(0.6.7 起,同时进命令面板):**用量设置弹窗**(可扩展,四项)——① **hit 维度**(`d` 切换):`今日汇总`(全 session 日级 `read ÷ (read+input)`)⇄ `当前会话`(严格口径 `read ÷ (input+read+write)`);② **footer Σ 段**(`f`,0.7.0 起默认关);③ **footer hit 段**(`h`,默认关);④ **右栏指标块**(`b`,默认开)。全部持久化(storage),弹窗内状态响应式刷新;另有命令面板"切换 hit 维度"直切命令兜底
 
 Token 消耗统计基于服务端原生聚合 API(`/api/experimental/session/stats`),跨全部会话(含无 TUI 的 headless 会话与子代理),插件零采集、零存储,服务重启不丢数据。
 

@@ -328,7 +328,7 @@ context.ui.slot({
 
 - **footer**:追加 `Σ <今日总量>`,与 tok/s 同行同级。口径 = 今日 `input+output+reasoning`(cache 读写成本结构不同,不计入 Σ,弹窗中单列)。今日为 0 或 API 不可用时隐藏。0.4.2 起 Σ 旁追加 `hit <nn>%` 今日缓存命中率(口径 `cache.read ÷ (cache.read + input)`,分母 0 隐藏)。0.6.0 起曾追加 `ctx <nn>%` 当前窗口占用,**0.6.4 起从 footer 移除**(与 tok/s 同级冗余;窗口口径完整保留在面板"当前窗口"块,见 §12B/§12D)。
 - **`/usage-full` 命令**(0.5.0 前为 `/tokens`,别名 `/tok`、`/usage` 已移除;同时进命令面板):今日按模型明细(≤12 行,按输出排序)+ 今日合计 + 近 7 日 steps 趋势(取自全量查询的 `activity` 尾部 7 条)+ 累计总量 + 累计 Top 5 模型。`cost` 为 0(模型未配价)时整列隐藏。0.4.0 起升级为**开关式 `session.panel` 侧边面板**(头部含当前会话实时计时/tok/s/今日 Σ,0.6.0 起头部另有"当前窗口/本会话累计/子代理"三块,见 §12B,`createMemo` 响应式刷新;`/usage-full` 或 `Esc` 收起,`f` 全屏,面板打开期间每次 step 结束自动刷新今日+全量明细;会话外降级为普通弹窗)。
-- **刷新策略**:插件加载时取一次;`session.step.ended/failed` 后 1.5s 防抖刷新;弹窗打开时双查询(今日+全量)并回写 footer 信号;500ms tick 检测跨零点自动重取并复位失败标记。
+- **刷新策略**:插件加载时取一次;`session.step.ended/failed` 后 1.5s 防抖刷新;**60s 周期刷新(0.6.8)**——后台会话(子代理/headless)消耗不触发本会话轮事件,定时器保证空闲期 Σ/hit 不滞后;弹窗打开时双查询(今日+全量)并回写 footer 信号;500ms tick 检测跨零点自动重取并复位失败标记。footer 的 hit 显示一位小数(0.6.8):日级比值天然稳定(缓存命中主导),整数四舍五入会掩盖真实移动,一位小数让变化可见且对齐原生精度风格。
 - **降级**:client 方法缺失或请求失败 → Σ 静默隐藏、弹窗显示错误文案,`console.error` 记录一次;不阻塞计时/tok/s 主功能。
 
 ### 12A.3 已知限制与风险
@@ -362,7 +362,9 @@ context.ui.slot({
 
 **命中率口径**:会话级用 `cache.read ÷ (input + cache.read + cache.write)`(与原生面板/参考实现一致,分母含 cache write,更严格);footer 日级维持 `read ÷ (read + input)`(日级 stats API 口径)。两口径并存属有意为之。
 
-**footer hit 维度可配置(0.6.6,0.6.7 重构为设置入口)**:footer 的 hit 段支持两种维度——`today`(默认,全 session 日级汇总,`hit nn%`)与 `session`(当前会话,严格口径,`hit·s nn%`),经 **`/usage-settings` 设置弹窗**(可扩展,弹窗内 `d` 切换,状态响应式)或命令面板"切换 hit 维度"直切命令配置,持久化于 `storage.store("usage-meter.settings")`(2.0.21 宿主尚无插件 options 配置通道,故命令+存储自洽;未来宿主支持 `{ package, options }` 后可加配置文件直读)。面板不受影响,始终完整展示两个维度。
+**footer 指标段配置化(0.6.6 引入,0.6.7 设置入口,0.7.0 重定默认)**:footer 的 hit 段支持两种维度——`today`(全 session 日级汇总,`hit nn%`)与 `session`(当前会话,严格口径,`hit·s nn%`);**0.7.0 起 footer 默认只显示 ⏱ 与 ⚡**(速率链路含空闲终值不变),`Σ`/`hit` 段改为**默认关的 opt-in 开关**。全部经 **`/usage-settings` 设置弹窗**配置(四项:hit 维度 `d`、footer Σ `f`、footer hit `h`、右栏指标块 `b`),持久化于 `storage.store("usage-meter.settings")`(2.0.21 宿主尚无插件 options 配置通道,故命令+存储自洽;未来宿主支持 `{ package, options }` 后可加配置文件直读);旧存储缺键时由读取器按文档默认值归一。另有命令面板"切换 hit 维度"直切命令兜底。`/usage-full` 面板不受影响,始终完整展示两个维度。
+
+**右栏指标块(0.7.0)**:会话右栏(标题 + Context + MCP + agents 区块的宿主侧栏)经 v2.0.21 源码取证确认——宿主自己的 Context/MCP 区块就是 `feature-plugins/sidebar/context.tsx`/`mcp.tsx` 通过 `append: "sidebar.content"` 挂载的(即 `routes/session/sidebar.tsx` 右栏 scrollbox 内的 `sidebar.content` slot)。插件以同通道 `append: "sidebar.content"` 追加"用量"块,落在上述区块下方:当前会话实时 ⏱/⚡(空闲显示 last + 精确速率,与 footer 同数据同口径)+ 今日 Σ + hit(维度跟随设置;会话维度标注"本会话"、日级标注"今日")。默认开,设置中可关;生命周期纳入清理。
 
 **80% 压缩预警**:窗口占用 ≥80% 时,面板占用行追加"▲ 接近压缩阈值"。阈值为常量 `CTX_WARN_PCT`,未来可配置化。(0.6.4 起 footer 不再有 ctx 段,预警仅在面板出现。)
 
@@ -448,3 +450,5 @@ context.ui.slot({
 | 2026-10-03 | 0.6.5 | tok/s 空闲值真机偏差修复:原生 70.5 vs 插件 63 avg——`message.updated` 精确通道单点不可靠,空闲精确速率改为轮结束时从权威消息记录聚合(`Σ(output+reasoning) ÷ Σ(created→completed)`,原生同口径),1.5s 延迟重算兜底,`tsOf` 容忍式时间戳解析,时长 <60s 显示一位小数对齐原生;§13 核实宿主已内置完成通知(`internal:notifications` + `attention` 配置),"完成提示音"自研项撤销 |
 | 2026-10-03 | 0.6.6 | footer hit 维度可配置:新增 `/usage-dim` 命令切换 `今日汇总 hit nn%`(默认,原行为)⇄ `当前会话 hit·s nn%`(单会话严格口径),storage 持久化 + toast 反馈 + 响应式即时生效;取证确认 2.0.21 宿主无插件 options 配置通道(dev 的 `{package, options}` 未回传),故配置走命令+存储;面板两维度始终完整 |
 | 2026-10-03 | 0.6.7 | 配置入口重构(命名清晰化):`/usage-dim` → **`/usage-settings` 设置弹窗**(可扩展:当前 hit 维度一项,后续配置项并入),弹窗内 `d` 切换、状态响应式刷新、自动持久化;另保留命令面板"切换 hit 维度"直切命令兜底(防弹窗内 keybind 注册失败的宿主差异) |
+| 2026-10-03 | 0.6.8 | hit 一位小数(整数百分比在日级比值天然稳定时看似"冻结")+ Σ/hit 60s 周期刷新(后台会话消耗不触发本会话轮事件,空闲期不再滞后);刷新策略见 §12B |
+| 2026-10-03 | 0.7.0 | footer 重定默认 + 右栏指标块:footer 默认只显示 ⏱/⚡(速率链路含空闲精确终值不变),`Σ`/`hit` 改为 `/usage-settings` opt-in 开关(默认关,`f`/`h` 切换);新增右栏"用量"块(`append: "sidebar.content"`,与宿主 Context/MCP 区块同通道,默认开,`b` 切换)——当前会话实时 ⏱/⚡ + 今日 Σ + hit(维度跟随设置);设置读取器对旧存储缺键按文档默认值归一;slot 取证与设计见 §12B |

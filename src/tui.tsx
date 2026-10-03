@@ -158,7 +158,15 @@ export default Plugin.define({
       const store = (context.storage as any)?.store
       if (typeof store === "function") {
         const [s, u] = store("usage-meter.settings", {
-          initial: { hitScope: "today" as "today" | "session" },
+          initial: {
+            hitScope: "today" as "today" | "session",
+            // v0.7.0: the footer defaults to waited + tok/s only; the Σ and
+            // hit segments are opt-in. The right-sidebar metrics block is on
+            // by default. Absent keys fall back to these defaults on read.
+            footerSigma: false,
+            footerHit: false,
+            sidebarMetrics: true,
+          },
         })
         settingsStore = s ?? {}
         updateSettingsStore = u
@@ -773,11 +781,26 @@ export default Plugin.define({
     // v0.6.7: /usage-settings — extensible settings dialog (currently one
     // item: the footer hit dimension). Reactive reads from the settings
     // store mean the body re-renders the moment a value changes.
+    // Normalized settings readers: persisted stores from older versions lack
+    // the newer keys, so each reader applies the documented default itself.
+    const hitScopeEnabled = (): "today" | "session" =>
+      settingsStore?.hitScope === "session" ? "session" : "today"
+    const footerSigmaEnabled = (): boolean => settingsStore?.footerSigma === true
+    const footerHitEnabled = (): boolean => settingsStore?.footerHit === true
+    const sidebarMetricsEnabled = (): boolean => settingsStore?.sidebarMetrics !== false
+    const toggleSettingsFlag = (flagKey: string, currentValue: boolean): void => {
+      try {
+        void updateSettingsStore?.((draft: any) => {
+          draft[flagKey] = !currentValue
+        })
+      } catch {}
+    }
+
     const toggleHitScope = (): void => {
       try {
-        const next = settingsStore?.hitScope === "session" ? "today" : "session"
+        const nextHitScope = hitScopeEnabled() === "session" ? "today" : "session"
         void updateSettingsStore?.((draft: any) => {
-          draft.hitScope = next
+          draft.hitScope = nextHitScope
         })
       } catch {}
     }
@@ -792,22 +815,124 @@ export default Plugin.define({
               bind: "d",
               run: () => toggleHitScope(),
             },
+            {
+              id: "usage-meter.settings.toggle-footer-sigma",
+              title: "用量设置:footer Σ 段开关",
+              bind: "f",
+              run: () => toggleSettingsFlag("footerSigma", footerSigmaEnabled()),
+            },
+            {
+              id: "usage-meter.settings.toggle-footer-hit",
+              title: "用量设置:footer hit 段开关",
+              bind: "h",
+              run: () => toggleSettingsFlag("footerHit", footerHitEnabled()),
+            },
+            {
+              id: "usage-meter.settings.toggle-sidebar",
+              title: "用量设置:右栏指标块开关",
+              bind: "b",
+              run: () => toggleSettingsFlag("sidebarMetrics", sidebarMetricsEnabled()),
+            },
           ],
         }))
       } catch {}
-      const scope = settingsStore?.hitScope === "session" ? "session" : "today"
-      const label =
-        scope === "session"
+      const onOff = (enabled: boolean): string => (enabled ? "开" : "关")
+      const hitScopeLabel =
+        hitScopeEnabled() === "session"
           ? "当前会话(hit·s,严格口径 read ÷ (input+read+write))"
           : "今日汇总(hit,全 session 日级,read ÷ (read+input))"
       const lines = [
         "用量设置",
         "──────────────────────────────",
-        `hit 维度:${label}`,
+        `hit 维度:${hitScopeLabel}`,
+        `footer Σ 段:${onOff(footerSigmaEnabled())}`,
+        `footer hit 段:${onOff(footerHitEnabled())}`,
+        `右栏指标块:${onOff(sidebarMetricsEnabled())}`,
         "",
-        "d 切换维度 · Esc 关闭(选择自动持久化)",
+        "d hit 维度 · f footer Σ · h footer hit · b 右栏块 · Esc 关闭",
+        "(footer 默认只显示 ⏱ 与 ⚡,其余段按需开启;选择自动持久化)",
       ]
       return <text fg={(context.theme as any)?.text?.base}>{lines.join("\n")}</text>
+    }
+
+    // v0.7.0: right-sidebar metrics block. The right column (session title +
+    // Context + MCP + agents sections) is the host's sidebar and exposes the
+    // `sidebar.content` slot — the same channel the native Context/MCP
+    // feature-plugins claim. Our block lands below them and mirrors the
+    // footer's live session readout plus today's Σ and the hit metric whose
+    // dimension follows the /usage-settings hitScope.
+    const SidebarMetrics = (props: { sessionID: string }) => {
+      if (!sidebarMetricsEnabled()) return null
+      const sessionID = props.sessionID
+      const running = context.data?.session?.status?.(sessionID) === "running"
+      const started = starts.get(sessionID)
+      const last = lastDurations.get(sessionID)
+      const currentTime = now()
+      const metricLines: string[] = []
+      if (running && started !== undefined) {
+        const rate = rates.get(sessionID)
+        const liveTokPerSec = rate ? liveRate(rate, currentTime) : undefined
+        metricLines.push(
+          `⏱ ${format(currentTime - started)}` +
+            `${liveTokPerSec !== undefined ? `   ⚡ ${Math.round(liveTokPerSec * calibOf(sessionID))} tok/s` : ""}`,
+        )
+      } else if (running) {
+        metricLines.push("⏱ running")
+      } else if (last !== undefined) {
+        const exact = lastExactRates.get(sessionID)
+        const avgRate = lastAvgRates.get(sessionID)
+        const rateText =
+          exact !== undefined
+            ? `${exact} tok/s`
+            : avgRate !== undefined
+              ? `${avgRate} tok/s avg`
+              : undefined
+        metricLines.push(`✓ last ${format(last)}${rateText ? `   ⚡ ${rateText}` : ""}`)
+      }
+      const stats = todayStats()
+      const hitScope = hitScopeEnabled()
+      if (stats) {
+        const todayTokens = stats?.tokens
+        const total =
+          (todayTokens?.input ?? 0) + (todayTokens?.output ?? 0) + (todayTokens?.reasoning ?? 0)
+        if (total > 0) metricLines.push(`Σ 今日 ${fmtNum(total)}`)
+      }
+      if (hitScope === "session") {
+        try {
+          const sessionTokens = context.data?.session?.get?.(sessionID)?.tokens
+          const cacheRead = sessionTokens?.cache?.read ?? 0
+          const denominator =
+            (sessionTokens?.input ?? 0) + cacheRead + (sessionTokens?.cache?.write ?? 0)
+          if (denominator > 0)
+            metricLines.push(`hit·s ${((cacheRead / denominator) * 100).toFixed(1)}%(本会话)`)
+        } catch {}
+      } else if (stats) {
+        const cacheRead = stats?.tokens?.cache?.read ?? 0
+        const denominator = cacheRead + (stats?.tokens?.input ?? 0)
+        if (denominator > 0)
+          metricLines.push(`hit ${((cacheRead / denominator) * 100).toFixed(1)}%(今日)`)
+      }
+      if (metricLines.length === 0) return null
+      const muted = context.theme?.text?.muted
+      return (
+        <box flexDirection="column">
+          <text fg={(context.theme as any)?.text?.base}>用量</text>
+          <text fg={muted}>{metricLines.join("\n")}</text>
+        </box>
+      )
+    }
+
+    let unregisterSidebarSlot: any
+    try {
+      unregisterSidebarSlot = context.ui.slot({
+        append: "sidebar.content",
+        render: (sidebarProps: any) =>
+          sidebarProps?.sessionID
+            ? <SidebarMetrics sessionID={sidebarProps.sessionID} />
+            : null,
+      })
+    } catch (error) {
+      console.error("[usage-meter] sidebar.content slot failed:", error)
     }
 
     // /usage-full + palette commands "用量统计" / "用量设置".
@@ -1038,6 +1163,10 @@ export default Plugin.define({
 
     // Initial daily-usage load for the footer Σ.
     void fetchToday()
+    // v0.6.8: periodic refresh (60s) — background sessions (subagents,
+    // headless runs) consume usage without firing this session's turn
+    // events, so the daily footer stats could lag indefinitely while idle.
+    const statsInterval = setInterval(() => void fetchToday(), 60_000)
 
     const unregister = context.ui.slot({
       append: "prompt.footer.status",
@@ -1069,32 +1198,35 @@ export default Plugin.define({
             if (avg !== undefined) parts.push(`⚡ ${avg} tok/s avg`)
           }
         }
-        // Today's total usage across all sessions (server aggregate), same row
-        // as the tok/s readout. Hidden when unavailable or zero. The cache hit
-        // rate rides along with it — scope is configurable via /usage-settings:
-        // "today" (default: all-session daily aggregate, read/(read+input))
-        // or "session" (current session, strict read/(input+read+write),
-        // shown as "hit·s"). Reads are reactive: toggling updates at once.
-        const hitScope = settingsStore?.hitScope === "session" ? "session" : "today"
-        if (hitScope === "session") {
+        // v0.7.0: Σ/hit footer segments are opt-in via /usage-settings (the
+        // footer defaults to waited + tok/s only). The hit scope stays
+        // configurable: "today" (all-session daily aggregate, read/(read+input))
+        // or "session" (strict read/(input+read+write), shown as "hit·s").
+        // Reads are reactive: toggling updates at once.
+        const hitScope = hitScopeEnabled()
+        const showHitInFooter = footerHitEnabled()
+        if (showHitInFooter && hitScope === "session") {
           try {
-            const t = context.data?.session?.get?.(sessionID)?.tokens
-            const read = t?.cache?.read ?? 0
-            const denom = (t?.input ?? 0) + read + (t?.cache?.write ?? 0)
-            if (denom > 0) parts.push(`hit·s ${Math.round((read / denom) * 100)}%`)
+            const sessionTokens = context.data?.session?.get?.(sessionID)?.tokens
+            const cacheRead = sessionTokens?.cache?.read ?? 0
+            const denominator = (sessionTokens?.input ?? 0) + cacheRead + (sessionTokens?.cache?.write ?? 0)
+            // One decimal: the daily/session ratio is naturally stable, so an
+            // integer percent looks frozen while the underlying counts move.
+            if (denominator > 0) parts.push(`hit·s ${((cacheRead / denominator) * 100).toFixed(1)}%`)
           } catch {}
         }
         const stats = todayStats()
         if (stats) {
-          const tk = stats?.tokens
-          const total = (tk?.input ?? 0) + (tk?.output ?? 0) + (tk?.reasoning ?? 0)
-          if (total > 0) {
+          const todayTokens = stats?.tokens
+          const total =
+            (todayTokens?.input ?? 0) + (todayTokens?.output ?? 0) + (todayTokens?.reasoning ?? 0)
+          if (footerSigmaEnabled() && total > 0) {
             parts.push(`Σ ${fmtNum(total)}`)
-            if (hitScope !== "session") {
-              const read = tk?.cache?.read ?? 0
-              const denom = read + (tk?.input ?? 0)
-              if (denom > 0) parts.push(`hit ${Math.round((read / denom) * 100)}%`)
-            }
+          }
+          if (showHitInFooter && hitScope !== "session") {
+            const cacheRead = todayTokens?.cache?.read ?? 0
+            const denominator = cacheRead + (todayTokens?.input ?? 0)
+            if (denominator > 0) parts.push(`hit ${((cacheRead / denominator) * 100).toFixed(1)}%`)
           }
         }
         // v0.6.4: the ctx readout moved out of the footer (redundant at the
@@ -1108,8 +1240,14 @@ export default Plugin.define({
 
     return () => {
       clearInterval(timer)
+      clearInterval(statsInterval)
       if (statsTimer !== undefined) clearTimeout(statsTimer)
       if (typeof unregister === "function") unregister()
+      if (typeof unregisterSidebarSlot === "function") {
+        try {
+          unregisterSidebarSlot()
+        } catch {}
+      }
       if (typeof unregisterAppSlot === "function") {
         try {
           unregisterAppSlot()
