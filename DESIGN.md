@@ -424,7 +424,8 @@ context.ui.slot({
 | ~~费用(USD)估算~~ **已随 0.3.0 实现** | stats API 自带 `cost`(模型未配价时为 0) | 弹窗内展示 |
 | 全 session 状态列表 | `sidebar.content` slot | 左侧列表:各 session 运行态 + 速率 |
 | 本轮/累计花费(USD) | `tokens` × 模型单价;`context.storage.store()` 持久化 | footer 或面板 |
-| 跑完弹"战报" | `context.ui.dialog.show()` | 本轮 token/时长/花费弹窗 |
+| 跑完弹"战报" | `context.ui.dialog.show()` | **暂缓未实现(2026-10-03 用户决定暂不做弹窗)**:本轮 token/时长/花费战报;数据链路已就绪(finishTurn 已持有 duration/lastExactRates/todayStats),启动时仅需恢复此表项 |
+| 配置文件直读(options 通道) | 宿主插件 options 回传(v2.0.21 取证:**未实现**——`{package, options}` 不回传插件) | **等待宿主,未实现**:就绪后支持 `opencode.json` 内 `options: { hitScope, footerSigma, footerHit, sidebarMetrics }` 启动即生效;当前经 `/usage-settings` + storage 持久化达成同等效果 |
 | ~~完成提示音/通知~~ **已被宿主自带覆盖(0.6.5 核实,无需自研)** | v2.0.21 内置 `internal:notifications` 特性插件:轮结束播放 `done` 音效(子代理 `subagent_done`)、报错 `error`、提问/授权提醒;系统通知仅在窗口失焦时(`blurred`);由 `attention.*` 配置控制(`attention.enabled` 默认 `false`,需用户配置开启) | 不做;如需差异化提醒再用 `context.attention.notify()` |
 | 模型/工具活动指示 | `session.step.started`(model/agent)、`session.tool.*` | footer 或面板 |
 
