@@ -149,6 +149,22 @@ export default Plugin.define({
         updateCalibStore = u
       }
     } catch {}
+    // v0.6.6: user-facing footer dimension settings (durable, synced across
+    // TUI instances). The user host (2.0.21) has no plugin-options config
+    // channel yet, so settings persist here and toggle via /usage-dim.
+    let settingsStore: any = {}
+    let updateSettingsStore: ((fn: (draft: any) => void) => Promise<void>) | undefined
+    try {
+      const store = (context.storage as any)?.store
+      if (typeof store === "function") {
+        const [s, u] = store("usage-meter.settings", {
+          initial: { hitScope: "today" as "today" | "session" },
+        })
+        settingsStore = s ?? {}
+        updateSettingsStore = u
+      }
+    } catch {}
+
     // Last-seen model per session ("provider/model"), used to key persisted
     // calibration; falls back to the session record.
     const sessionModels = new Map<string, string>()
@@ -781,6 +797,32 @@ export default Plugin.define({
                       void runTokensCommand()
                     },
                   },
+                  {
+                    // v0.6.6: toggle the footer hit metric between the
+                    // all-session daily aggregate and the current session.
+                    // Persists via the settings store; reactive re-render.
+                    id: "usage-meter.hit-scope",
+                    title: "切换 hit 维度(今日汇总 ⇄ 当前会话)",
+                    group: "usage-meter",
+                    palette: true,
+                    slash: { name: "usage-dim" },
+                    run: () => {
+                      try {
+                        const next =
+                          settingsStore?.hitScope === "session" ? "today" : "session"
+                        void updateSettingsStore?.((draft: any) => {
+                          draft.hitScope = next
+                        })
+                        ;(context.ui as any)?.toast?.show?.({
+                          title: "usage-meter",
+                          message:
+                            next === "session"
+                              ? "hit 维度:当前会话(hit·s,严格口径)"
+                              : "hit 维度:今日汇总(hit,全 session)",
+                        })
+                      } catch {}
+                    },
+                  },
                 ],
               }))
             } catch (error) {
@@ -975,16 +1017,30 @@ export default Plugin.define({
         }
         // Today's total usage across all sessions (server aggregate), same row
         // as the tok/s readout. Hidden when unavailable or zero. The cache hit
-        // rate (cache.read / (cache.read + input)) rides along with it.
+        // rate rides along with it — scope is configurable via /usage-dim:
+        // "today" (default: all-session daily aggregate, read/(read+input))
+        // or "session" (current session, strict read/(input+read+write),
+        // shown as "hit·s"). Reads are reactive: toggling updates at once.
+        const hitScope = settingsStore?.hitScope === "session" ? "session" : "today"
+        if (hitScope === "session") {
+          try {
+            const t = context.data?.session?.get?.(sessionID)?.tokens
+            const read = t?.cache?.read ?? 0
+            const denom = (t?.input ?? 0) + read + (t?.cache?.write ?? 0)
+            if (denom > 0) parts.push(`hit·s ${Math.round((read / denom) * 100)}%`)
+          } catch {}
+        }
         const stats = todayStats()
         if (stats) {
           const tk = stats?.tokens
           const total = (tk?.input ?? 0) + (tk?.output ?? 0) + (tk?.reasoning ?? 0)
           if (total > 0) {
             parts.push(`Σ ${fmtNum(total)}`)
-            const read = tk?.cache?.read ?? 0
-            const denom = read + (tk?.input ?? 0)
-            if (denom > 0) parts.push(`hit ${Math.round((read / denom) * 100)}%`)
+            if (hitScope !== "session") {
+              const read = tk?.cache?.read ?? 0
+              const denom = read + (tk?.input ?? 0)
+              if (denom > 0) parts.push(`hit ${Math.round((read / denom) * 100)}%`)
+            }
           }
         }
         // v0.6.4: the ctx readout moved out of the footer (redundant at the
