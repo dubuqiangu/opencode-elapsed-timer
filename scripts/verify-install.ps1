@@ -38,6 +38,15 @@ function Count-Files {
   return @(Get-ChildItem $Directory -Recurse -File).Count
 }
 
+# What will actually ship: git-tracked files only. Untracked local artifacts
+# (e.g. gitignored visual-check screenshots) must not trip the mirror check.
+function Count-TrackedFiles {
+  param([string]$RepositoryRoot, [string]$Path)
+  $trackedPaths = git -C $RepositoryRoot ls-files -- $Path
+  if (-not $trackedPaths) { return 0 }
+  return @($trackedPaths).Count
+}
+
 # Newest install stamp that actually contains a complete package (partial
 # installs from an in-flight update have no node_modules yet).
 function Resolve-InstalledPackage {
@@ -69,9 +78,9 @@ $localHead = (git -C $repoRoot rev-parse --short HEAD).Trim()
 $originHead = (git -C $repoRoot rev-parse --short origin/main).Trim()
 Assert-Check "local HEAD is pushed (HEAD == origin/main)" ($localHead -eq $originHead) "HEAD=$localHead origin=$originHead"
 
-$expectedSrcCount = Count-Files (Join-Path $repoRoot "src")
-$expectedTestCount = Count-Files (Join-Path $repoRoot "test")
-$expectedDocsCount = Count-Files (Join-Path $repoRoot "docs")
+$expectedSrcCount = Count-TrackedFiles $repoRoot "src"
+$expectedTestCount = Count-TrackedFiles $repoRoot "test"
+$expectedDocsCount = Count-TrackedFiles $repoRoot "docs"
 
 # --- one-click update (returns early — poll for the install below) -----------------
 Set-Location $env:USERPROFILE
