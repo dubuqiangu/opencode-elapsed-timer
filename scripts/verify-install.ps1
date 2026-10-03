@@ -5,10 +5,14 @@
 #        on-disk installed version match -> installed file tree mirrors the
 #        repo (src/test/docs counts) -> host opencode.json registration.
 # Prints a PASS/FAIL line per check; exits 0 only when every check passes.
-# This verifies the DISK state only — the running TUI still needs a full
-# restart to pick the new code up (see docs/guides/install.md).
+#
+# Note: `opencode plugin update` returns BEFORE the install lands on disk,
+# so the script polls the host registry and the install stamps instead of
+# racing them. This verifies the DISK state only — the running TUI still
+# needs a full restart to pick the new code up (see docs/guides/install.md).
 param(
-  [string]$PluginId = "github:dubuqiangu/opencode-usage-meter"
+  [string]$PluginId = "github:dubuqiangu/opencode-usage-meter",
+  [int]$InstallTimeoutSeconds = 120
 )
 
 $ErrorActionPreference = "Stop"
@@ -34,6 +38,30 @@ function Count-Files {
   return @(Get-ChildItem $Directory -Recurse -File).Count
 }
 
+# Newest install stamp that actually contains a complete package (partial
+# installs from an in-flight update have no node_modules yet).
+function Resolve-InstalledPackage {
+  param([string]$CacheRoot)
+  $stamps = Get-ChildItem $CacheRoot -Directory -Filter "git-opencode-usage-meter-*" |
+    ForEach-Object { Get-ChildItem $_.FullName -Directory } |
+    Sort-Object Name -Descending
+  foreach ($stamp in $stamps) {
+    $packageDir = Join-Path $stamp.FullName "node_modules\opencode-usage-meter"
+    if (Test-Path (Join-Path $packageDir "package.json")) { return $packageDir }
+  }
+  return $null
+}
+
+function Read-ListedCommit {
+  $listLine = (opencode plugin list | Select-String -Pattern "usage-meter" | Select-Object -First 1).Line
+  if (-not $listLine) { return $null }
+  $plainLine = $listLine -replace "$([char]27)\[[0-9;]*m", ""
+  foreach ($token in ($plainLine -split "\s+")) {
+    if ($token -match "^[0-9a-f]{7,}$") { return $token }
+  }
+  return $null
+}
+
 # --- expected state, derived from the local repo ----------------------------------
 $packageJson = Get-Content (Join-Path $repoRoot "package.json") -Raw -Encoding UTF8 | ConvertFrom-Json
 $expectedVersion = $packageJson.version
@@ -45,29 +73,34 @@ $expectedSrcCount = Count-Files (Join-Path $repoRoot "src")
 $expectedTestCount = Count-Files (Join-Path $repoRoot "test")
 $expectedDocsCount = Count-Files (Join-Path $repoRoot "docs")
 
-# --- one-click update ---------------------------------------------------------------
+# --- one-click update (returns early — poll for the install below) -----------------
 Set-Location $env:USERPROFILE
-$null = opencode plugin update $PluginId
+$updateOutput = (opencode plugin update $PluginId 2>&1 | Out-String).Trim()
+Write-Output ("update: " + $updateOutput)
 
-# --- plugin list shows the pushed commit --------------------------------------------
-$listLine = (opencode plugin list | Select-String -Pattern "usage-meter" | Select-Object -First 1).Line
+# --- wait until the host registry reflects the pushed commit -----------------------
 $installedCommit = $null
-if ($listLine) {
-  $plainLine = $listLine -replace "$([char]27)\[[0-9;]*m", ""
-  foreach ($token in ($plainLine -split "\s+")) {
-    if ($token -match "^[0-9a-f]{7,}$") { $installedCommit = $token; break }
-  }
+$installDeadline = (Get-Date).AddSeconds($InstallTimeoutSeconds)
+while ((Get-Date) -lt $installDeadline) {
+  $installedCommit = Read-ListedCommit
+  if ($installedCommit -eq $localHead) { break }
+  Start-Sleep -Seconds 2
 }
 Assert-Check "plugin list shows the pushed commit" ($installedCommit -eq $localHead) "installed=$installedCommit expected=$localHead"
 
-# --- on-disk installed package -------------------------------------------------------
+# --- on-disk installed package (poll: the stamp lands slightly late) ----------------
 $cacheRoot = Join-Path $env:USERPROFILE ".cache\opencode\npm"
-$packageRoot = Get-ChildItem $cacheRoot -Directory -Filter "git-opencode-usage-meter-*" |
-  Sort-Object Name -Descending | Select-Object -First 1
-$installedPkg = if ($packageRoot) { Join-Path $packageRoot.FullName "node_modules\opencode-usage-meter" } else { $null }
-$installedVersion = if ($installedPkg -and (Test-Path (Join-Path $installedPkg "package.json"))) {
-  (Get-Content (Join-Path $installedPkg "package.json") -Raw -Encoding UTF8 | ConvertFrom-Json).version
-} else { $null }
+$installedPkg = $null
+$installedVersion = $null
+$diskDeadline = (Get-Date).AddSeconds(30)
+while ((Get-Date) -lt $diskDeadline) {
+  $installedPkg = Resolve-InstalledPackage $cacheRoot
+  if ($installedPkg) {
+    $installedVersion = (Get-Content (Join-Path $installedPkg "package.json") -Raw -Encoding UTF8 | ConvertFrom-Json).version
+    if ($installedVersion -eq $expectedVersion) { break }
+  }
+  Start-Sleep -Seconds 2
+}
 Assert-Check "on-disk installed version matches package.json" ($installedVersion -eq $expectedVersion) "installed=$installedVersion expected=$expectedVersion"
 
 $installedSrcCount = if ($installedPkg) { Count-Files (Join-Path $installedPkg "src") } else { -1 }
@@ -77,7 +110,7 @@ Assert-Check "installed src tree mirrors the repo" ($installedSrcCount -eq $expe
 Assert-Check "installed test tree mirrors the repo" ($installedTestCount -eq $expectedTestCount) "installed=$installedTestCount repo=$expectedTestCount"
 Assert-Check "installed docs tree mirrors the repo" ($installedDocsCount -eq $expectedDocsCount) "installed=$installedDocsCount repo=$expectedDocsCount"
 
-# --- host registration -----------------------------------------------------------------
+# --- host registration ---------------------------------------------------------------
 $hostConfigPath = Join-Path $env:USERPROFILE ".config\opencode\opencode.json"
 $hostConfig = if (Test-Path $hostConfigPath) {
   Get-Content $hostConfigPath -Raw -Encoding UTF8
